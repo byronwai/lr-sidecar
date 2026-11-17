@@ -17,6 +17,8 @@ export class Pipeline {
   constructor(bitmap,width,height){
     this.width=width;
     this.height=height;
+    this.previewWidth=bitmap.width;
+    this.previewHeight=bitmap.height;
     this.canvas=new OffscreenCanvas(width,height);
     const gl=this.gl=this.canvas.getContext('webgl2',{
       alpha:false,
@@ -204,7 +206,7 @@ export class Pipeline {
       info
     };
   }
-  buildMask(correction,source,records,globals){
+  buildMask(correction,source,records,globals,rasterEdges={}){
     let prev=this.target();
     this.draw(this.copy,prev,{}, {
       image:this.zero
@@ -221,6 +223,8 @@ export class Pipeline {
         inverted:m.MaskInverted===true,
         strength:num(m,'MaskBlendMode')===1?1:Math.abs(num(m,'MaskValue',1)),
         kind:0,
+        rasterEdgeRadius:[0,0],
+        growRaster:false,
         rect:[0,0,1,1],
         geometry:[0,0,1,1],
         radial:[0,0,0,0],
@@ -240,12 +244,19 @@ export class Pipeline {
         lumEq:lut.texture
       };
       if(type==='Mask/Image'){
-        const r=records.get(String(m.MaskDigest).toUpperCase());
+        const id=String(m.MaskDigest).toUpperCase();
+        const r=records.get(id);
         if(!r)throw new Error(`Missing raster ${m.MaskDigest} (${correction.name})`);
         const origin=numbers(m.Origin),
         size=numbers(m.FullMaskSize);
         if(size.length!==2||size.some(x=>!Number.isFinite(x)||x<=0)||origin.length!==2)throw new Error('Invalid mask Origin/FullMaskSize');
         values.rect=[origin[0]/size[0],origin[1]/size[1],r.width/size[0],r.height/size[1]];
+        const edge=Math.max(-32,Math.min(32,Number(rasterEdges[id])||0));
+        values.rasterEdgeRadius=[
+          Math.abs(edge)/(this.previewWidth*values.rect[2]),
+          Math.abs(edge)/(this.previewHeight*values.rect[3])
+        ];
+        values.growRaster=edge>0;
         textures.raster=r.texture;
       }
       else if(type==='Mask/Gradient'){

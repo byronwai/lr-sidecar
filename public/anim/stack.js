@@ -11,7 +11,7 @@ export class SliceStack {
     this.onSelect=onSelect;
     this.reduced=matchMedia('(prefers-reduced-motion: reduce)');
     this.groups=[];
-    this.separation=78;
+    this.separation=22;
     this.positions=[];
     this.drag=null;
     this.ignoreClick=false;
@@ -41,6 +41,8 @@ export class SliceStack {
     });
     this.resizeObserver=new ResizeObserver(()=>this.scheduleLayout());
     this.resizeObserver.observe(element);
+    this.sideColumns=[...element.closest('.pipeline').querySelectorAll('.input-column,.output-column')];
+    this.sideColumns.forEach(column=>this.resizeObserver.observe(column));
     document.fonts?.ready.then(()=>this.scheduleLayout());
   }
   setGroups(groups){
@@ -95,17 +97,26 @@ export class SliceStack {
     const labels=[...this.el.querySelectorAll('.slice-label')];
     const slices=[...this.el.querySelectorAll('.slice')];
     if(!labels.length)return;
-    let top=115;
+    const desktop=matchMedia('(min-width: 821px)').matches;
+    let top=desktop?52:88;
     this.positions=[];
-    // Labels define the minimum row height. Explode adds space without hiding text.
+    const heights=labels.map(label=>Math.ceil(label.getBoundingClientRect().height));
+    const lastRow=Math.max(heights[0],slices[0].offsetHeight*.3+12);
+    const rowHeights=heights.slice(1).map(height=>Math.max(desktop?52:76,height+10));
+    const naturalHeight=top+lastRow+rowHeights.reduce((total,height)=>total+height,0);
+    const controls=this.el.nextElementSibling;
+    const sideBottom=Math.max(...this.sideColumns.map(column=>column.getBoundingClientRect().bottom));
+    const available=desktop?sideBottom-this.el.getBoundingClientRect().top-controls.offsetHeight:0;
+    const spacing=Math.max(0,available-naturalHeight)/Math.max(1,labels.length-1)+(this.separation-22)*.65;
     for(let i=labels.length-1;i>=0;i--){
       labels[i].style.top=`${top}px`;
       const center=top+12;
       slices[i].style.setProperty('--y',`${center}px`);
       this.positions[i]=center;
-      top+=Math.max(100,labels[i].offsetHeight+20)+(this.separation-22)*.45;
+      if(i>0)top+=rowHeights[i-1]+spacing;
     }
-    this.el.style.height=`${Math.max(670,top+80)}px`;
+    const height=Math.ceil(Math.max(available,top+lastRow));
+    if(this.el.style.height!==`${height}px`)this.el.style.height=`${height}px`;
     this.el.style.setProperty('--collapse-y',`${this.positions.at(-1)}px`);
   }
   face(index,bitmap){

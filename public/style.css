@@ -312,7 +312,8 @@ h1 {
   position:relative
 }
 .column {
-  min-width:0
+  min-width:0;
+  align-self:start
 }
 .column h2 {
   border:1px solid #5aa9ff45;
@@ -1142,7 +1143,27 @@ footer b {
   }
 }
 .slice-label .param-line{display:block;margin-top:2px;overflow-wrap:anywhere}
-.slice-label .params{max-height:none;overflow:visible;font-size:10px;line-height:1.65}
+.slice-label .params{max-height:none;overflow:visible;font-size:10px;line-height:1.4}
+.raster-edges {
+  margin:18px 0 0;
+  border:1px solid #5aa9ff45;
+  border-radius:6px;
+  padding:12px;
+}
+.raster-edges label {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin:5px 15px 5px 0;
+}
+.raster-edges input {
+  width:5em;
+  background:#0d1424;
+  color:var(--text);
+  border:1px solid #5aa9ff70;
+  border-radius:4px;
+  padding:4px;
+}
 @media(max-width:600px){
   .slice{width:80px;height:120px}
   .stack-world{left:20%}

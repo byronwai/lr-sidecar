@@ -140,6 +140,8 @@ async function prepareFaces(m){
           next=renderer.target();
           renderer.draw(renderer.mask,next,{
             kind:0,
+            rasterEdgeRadius:[0,0],
+            growRaster:false,
             blendMode:0,
             first:false,
             inverted:false,
@@ -237,10 +239,12 @@ async function compile(message){
       for(const index of group.corrections){
         const c=settings.corrections[index],
         s=performance.now(),
-        mask=pipeline.buildMask(c,source,rasters,settings.globals),
+        mask=pipeline.buildMask(c,source,rasters,settings.globals,message.rasterEdges),
         next=pipeline.target();
         pipeline.draw(pipeline.mask,next,{
           kind:0,
+          rasterEdgeRadius:[0,0],
+          growRaster:false,
           blendMode:0,
           first:false,
           inverted:false,

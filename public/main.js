@@ -23,6 +23,7 @@ const state={
   acr:null,
   groups:[],
   disabled:new Set(),
+  rasterEdges:{},
   timings:{},
   correctionTimings:[],
   errors:{},
@@ -235,6 +236,8 @@ function updateReady(){
   $('#replay').disabled=!state.compiled||state.compiling||state.loading;
   $('#files').disabled=state.compiling||state.loading;
   $('#fullres').disabled=state.compiling||state.loading;
+  const edges=$('.raster-edges');
+  if(edges)edges.disabled=state.compiling||state.loading;
   if(mismatch){
     $('#status').textContent=mismatch;
     stage('compile','failed','ARW and XMP capture dates differ');
@@ -264,6 +267,28 @@ function showACR(){
   usage=state.settings?recordUsage(state.settings):new Map(),
   missing=validateBindings();
   $('#acr-details').innerHTML=`<p>ACR v${a.version} · source ${escape(a.source)} · ${a.count} records · reserved ${a.reserved}</p>${missing.length?`<p class="error">Missing raster: ${escape(missing.join('; '))}</p>`:''}${table(a.records.map(r=>[r.id.slice(0,12)+'…',r.kind,r.width?`${r.width} × ${r.height}`:`${r.receipt?.length} inflated bytes`,r.channels||'—',`${r.size} @ ${r.offset}`,r.md5Match?'✓ match':r.kind==='receipt'?'Receipt differs (finding)':'MISMATCH',(usage.get(r.id)||[r.kind==='receipt'?'Generative Remove receipt':'Unreferenced']).join('; ')]),['MD5','Kind','Dimensions','Ch','Bytes / offset','MD5 check','XMP use'])}${a.records.filter(r=>r.receipt).map(r=>`<h4>Receipt · prefix ${escape(r.receipt.prefix)}</h4><p>Table digest ${r.id}; actual ${r.actualMD5}. Adobe can edit this receipt on re-export.</p><pre>${escape(r.receipt.xml)}</pre>`).join('')}`;
+  const masks=new Map();
+  for(const correction of state.settings?.corrections||[]){
+    for(const mask of correction.masks){
+      if(mask.What!=='Mask/Image'||mask.MaskActive===false)continue;
+      const id=String(mask.MaskDigest).toUpperCase();
+      if(/^[0-9A-F]{32}$/.test(id))masks.set(id,mask.MaskName||id.slice(0,8));
+    }
+  }
+  if(!masks.size)return;
+  const controls=document.createElement('fieldset');
+  controls.className='raster-edges';
+  controls.innerHTML=`<legend>Raster mask edges</legend><p>Use negative pixels to shrink coverage or positive pixels to grow it. Compile to apply.</p>${[...masks].map(([id,name])=>`<label>${escape(name)} <small>${id.slice(0,8)}</small><input type="number" min="-32" max="32" step="1" value="${state.rasterEdges[id]||0}" data-mask-id="${id}"> px</label>`).join('')}`;
+  controls.addEventListener('change',event=>{
+    const input=event.target;
+    const value=Math.max(-32,Math.min(32,Math.round(Number(input.value)||0)));
+    input.value=value;
+    state.rasterEdges[input.dataset.maskId]=value;
+    invalidate();
+    updateReady();
+    passControls();
+  });
+  $('#acr-details').append(controls);
 }
 function invalidate(){
   selection++;
@@ -290,6 +315,7 @@ function invalidate(){
 }
 async function loadOne(file,extension){
   invalidate();
+  if(extension==='arw'||extension==='xmp')state.rasterEdges={};
   state.files[extension]={
     name:file.name,
     size:file.size
@@ -396,6 +422,7 @@ async function compile(){
       settings:state.settings,
       groups:state.groups,
       disabled:[...state.disabled],
+      rasterEdges:{...state.rasterEdges},
       fullRes:$('#fullres').checked,
       animate:!stack.reduced.matches
     });
