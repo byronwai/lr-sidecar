@@ -1,0 +1,382 @@
+import {
+  parseARW
+} from './formats/arw.js';
+import {
+  parseACR,
+  inflateReceipt
+} from './formats/acr.js';
+import decode from './vendor/jsquash-jxl/decode.js';
+import {
+  Pipeline,
+  orientCanvas,
+  finishCanvas
+} from './render/gl.js';
+let preview=null,arw=null,acr=null,rasters=new Map(),pipeline=null,outputs=new Map(),settings=null,busy=false;
+const send=(type,data={},transfer=[])=>postMessage({
+  type,
+  ...data
+},transfer);
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function rawCanvas(r){
+  const c=new OffscreenCanvas(r.width,r.height);
+  c.getContext('2d').putImageData(new ImageData(r.data,r.width,r.height),0,0);
+  return c;
+}
+async function decodeRaster(bytes,r,job){
+  const data=new Uint8ClampedArray(r.width*r.height*4),
+  columns=Math.ceil(r.width/r.tileWidth);
+  for(let i=0;i<r.tileOffsets.length;i++){
+    const at=r.tiffOffset+r.tileOffsets[i],
+    tile=await decode(bytes.slice(at,at+r.tileByteCounts[i]).buffer),
+    x=(i%columns)*r.tileWidth,
+    y=Math.floor(i/columns)*r.tileHeight;
+    if(tile.width<Math.min(r.tileWidth,r.width-x)||tile.height<Math.min(r.tileHeight,r.height-y))throw new Error(`Short decoded tile ${r.id}`);
+    for(let row=0;row<Math.min(tile.height,r.height-y);row++){
+      const w=Math.min(tile.width,r.width-x);
+      data.set(tile.data.subarray(row*tile.width*4,(row*tile.width+w)*4),((y+row)*r.width+x)*4);
+    }
+    send('progress',{
+      job,
+      stage:'acr',
+      message:`JXL ${r.id.slice(0,8)} · tile ${i+1}/${r.tileOffsets.length}`
+    });
+    await delay(0);
+  }
+  return {
+    ...r,
+    data
+  };
+}
+async function thumbnail(bitmap,max=1000){
+  const scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
+  return createImageBitmap(bitmap,{
+    resizeWidth:Math.max(1,Math.round(bitmap.width*scale)),
+    resizeHeight:Math.max(1,Math.round(bitmap.height*scale))
+  });
+}
+async function showOutput(index,job){
+  const out=outputs.get(index);
+  if(!out)throw new Error('Compile this pass before selecting it');
+  const pixels=pipeline.pixels(out),
+  done=finishCanvas(pixels,settings,settings.orientation||arw.orientation),
+  bitmap=await thumbnail(done.canvas);
+  send('intermediate',{
+    job,
+    index,
+    bitmap,
+    width:done.canvas.width,
+    height:done.canvas.height
+  },[bitmap]);
+}
+async function maskFace(mask,color,renderer=pipeline){
+  const bitmap=await renderer.bitmap(mask,650),
+  c=new OffscreenCanvas(bitmap.width,bitmap.height),
+  ctx=c.getContext('2d');
+  ctx.drawImage(bitmap,0,0);
+  bitmap.close();
+  const image=ctx.getImageData(0,0,c.width,c.height),
+  rgb=color.match(/\w\w/g).map(x=>parseInt(x,16));
+  for(let i=0;i<image.data.length;i+=4){
+    const value=image.data[i]/255;
+    image.data[i]=rgb[0]*value;
+    image.data[i+1]=rgb[1]*value;
+    image.data[i+2]=rgb[2]*value;
+    image.data[i+3]=255;
+  }
+  ctx.putImageData(image,0,0);
+  return createImageBitmap(orientCanvas(c,settings.orientation||arw.orientation));
+}
+function patchFace(areas,width,height){
+  const c=new OffscreenCanvas(width,height),
+  ctx=c.getContext('2d');
+  ctx.fillStyle='#070d18';
+  ctx.fillRect(0,0,width,height);
+  for(const area of areas){
+    const patch=rasters.get(String(area.pm_patch).toUpperCase()),
+    mask=rasters.get(String(area.pm_patch_mask).toUpperCase());
+    if(!patch||!mask)throw new Error('Missing Remove patch');
+    const pc=rawCanvas(patch),
+    pctx=pc.getContext('2d'),
+    pi=pctx.getImageData(0,0,pc.width,pc.height);
+    for(let y=0;y<pc.height;y++)for(let x=0;x<pc.width;x++){
+      const mx=Math.min(mask.width-1,Math.floor(x/pc.width*mask.width)),
+      my=Math.min(mask.height-1,Math.floor(y/pc.height*mask.height));
+      pi.data[(y*pc.width+x)*4+3]=mask.data[(my*mask.width+mx)*4];
+    }
+    pctx.putImageData(pi,0,0);
+    const left=area.pm_whole_image_left??area.pm_full_image_left??0,
+    top=area.pm_whole_image_top??area.pm_full_image_top??0,
+    w=(area.pm_whole_image_right??area.pm_full_image_right)-left,
+    h=(area.pm_whole_image_bottom??area.pm_full_image_bottom)-top;
+    ctx.drawImage(pc,(area.pm_target_left-left)/w*width,(area.pm_target_top-top)/h*height,(area.pm_target_right-area.pm_target_left)/w*width,
+    (area.pm_target_bottom-area.pm_target_top)/h*height);
+  }
+  return c;
+}
+async function prepareFaces(m){
+  settings=m.settings;
+  const width=768,
+  height=Math.round(width*preview.height/preview.width),
+  renderer=new Pipeline(preview,width,height),
+  records=new Map();
+  try{
+    for(const r of rasters.values())records.set(r.id,{
+      ...r,
+      texture:renderer.texture(rawCanvas(r))
+    });
+    for(let i=0;i<m.groups.length;i++){
+      const group=m.groups[i];
+      let face;
+      if(group.kind==='globals')face=await thumbnail(orientCanvas(preview,settings.orientation||arw.orientation),850);
+      else if(group.kind==='remove')face=await createImageBitmap(orientCanvas(patchFace(settings.remove,width,height),
+      settings.orientation||arw.orientation));
+      else {
+        let union=renderer.target();
+        renderer.draw(renderer.copy,union,{}, {
+          image:renderer.zero
+        });
+        for(const index of group.corrections){
+          const mask=renderer.buildMask(settings.corrections[index],renderer.input,records,settings.globals),
+          next=renderer.target();
+          renderer.draw(renderer.mask,next,{
+            kind:0,
+            blendMode:0,
+            first:false,
+            inverted:false,
+            strength:1,
+            rect:[0,0,1,1]
+          },{
+            image:renderer.input,
+            previous:union.texture,
+            raster:mask.texture
+          });
+          renderer.release(mask);
+          renderer.release(union);
+          union=next;
+        }
+        face=await maskFace(union,group.color.slice(1),renderer);
+        renderer.release(union);
+      }
+      send('face',{
+        job:m.job,
+        index:i,
+        face
+      },[face]);
+    }
+    send('faces',{
+      job:m.job
+    });
+  }finally{
+    renderer.dispose();
+  }
+}
+async function compile(message){
+  if(!preview||!acr)throw new Error('Read ARW and ACR before compiling');
+  settings=message.settings;
+  const {
+    job,
+    groups,
+    disabled=[],
+    fullRes=false,
+    animate=true
+  }=message;
+  pipeline?.dispose();
+  outputs.clear();
+  const scale=fullRes?1:Math.min(1,3072/Math.max(preview.width,preview.height)),
+  width=Math.round(preview.width*scale),
+  height=Math.round(preview.height*scale);
+  pipeline=new Pipeline(preview,width,height);
+  for(const r of rasters.values())r.texture=pipeline.texture(rawCanvas(r));
+  let source=pipeline.input,
+  previous=null;
+  for(let i=0;i<groups.length;i++){
+    const group=groups[i],
+    start=performance.now();
+    send('pass-start',{
+      job,
+      index:i,
+      name:group.name
+    });
+    const enabled=!disabled.includes(i);
+    let out,
+    face;
+    if(group.kind==='globals'){
+      out=enabled?pipeline.globals(source,settings.globals,arw.whiteBalance):pipeline.target();
+      if(!enabled)pipeline.draw(pipeline.copy,out,{}, {
+        image:source
+      });
+      face=await thumbnail(orientCanvas(preview,settings.orientation||arw.orientation),900);
+    }
+    else if(group.kind==='remove'){
+      for(const area of settings.remove){
+        const result=pipeline.patch(source,area,rasters);
+        if(out&&out!==previous)pipeline.release(out);
+        out=result.out;
+        source=out.texture;
+        send('log',{
+          job,
+          message:`Remove colour match (linear moments): gain ${result.stats.gain.map(x=>x.toFixed(3)).join(', ')}. pm_remap_info preserved, not interpreted.`
+        });
+      }
+      if(!out) {
+        out=pipeline.target();
+        pipeline.draw(pipeline.copy,out,{}, {
+          image:previous?.texture||pipeline.input
+        });
+      }
+      if(!enabled)pipeline.draw(pipeline.copy,out,{}, {
+        image:previous?.texture||pipeline.input
+      });
+      face=await createImageBitmap(orientCanvas(patchFace(settings.remove,768,Math.round(768*height/width)),settings.orientation||arw.orientation));
+    }else{
+      const union=pipeline.target();
+      pipeline.draw(pipeline.copy,union,{}, {
+        image:pipeline.zero
+      });
+      let maskUnion=union;
+      for(const index of group.corrections){
+        const c=settings.corrections[index],
+        s=performance.now(),
+        mask=pipeline.buildMask(c,source,rasters,settings.globals),
+        next=pipeline.target();
+        pipeline.draw(pipeline.mask,next,{
+          kind:0,
+          blendMode:0,
+          first:false,
+          inverted:false,
+          strength:1,
+          rect:[0,0,1,1]
+        },{
+          image:source,
+          previous:maskUnion.texture,
+          raster:mask.texture
+        });
+        pipeline.release(maskUnion);
+        maskUnion=next;
+        const rendered=enabled&&c.CorrectionActive!==false?pipeline.correction(source,c,mask):pipeline.target();
+        if(!enabled||c.CorrectionActive===false)pipeline.draw(pipeline.copy,rendered,{}, {
+          image:source
+        });
+        if(out&&out!==previous)pipeline.release(out);
+        out=rendered;
+        source=out.texture;
+        pipeline.release(mask);
+        pipeline.gl.finish();
+        send('correction',{
+          job,
+          index,
+          name:c.name,
+          ms:performance.now()-s
+        });
+      }
+      face=await maskFace(maskUnion,group.color.slice(1));
+      pipeline.release(maskUnion);
+    }
+    pipeline.gl.finish();
+    const ms=performance.now()-start;
+    outputs.set(i,out);
+    source=out.texture;
+    previous=out;
+    const previewBitmap=await pipeline.bitmap(out,1400);
+    const bitmap=await createImageBitmap(orientCanvas(previewBitmap,settings.orientation||arw.orientation));
+    previewBitmap.close();
+    send('pass-done',{
+      job,
+      index:i,
+      ms,
+      enabled,
+      bitmap,
+      face
+    },[bitmap,face]);
+    if(animate)await delay(Math.max(0,550-ms));
+  }
+  const final=finishCanvas(pipeline.pixels(previous),settings,settings.orientation||arw.orientation),
+  png=await final.canvas.convertToBlob({
+    type:'image/png'
+  }),
+  jpg=await final.canvas.convertToBlob({
+    type:'image/jpeg',
+    quality:.95
+  }),
+  bitmap=await thumbnail(final.canvas,1600);
+  send('compiled',{
+    job,
+    width:final.canvas.width,
+    height:final.canvas.height,
+    workingWidth:width,
+    workingHeight:height,
+    crop:final.crop,
+    png,
+    jpg,
+    bitmap
+  },[bitmap]);
+}
+onmessage=async event=>{
+  const m=event.data,
+  {
+    job
+  }=m;
+  const start=performance.now();
+  if(busy){
+    send('error',{
+      job,
+      stage:m.type,
+      message:'Worker is busy; wait for the current operation'
+    });
+    return;
+  }
+  busy=true;
+  try{
+    if(m.type==='arw'){
+      preview?.close();
+      preview=null;
+      arw=null;
+      const result=parseARW(m.buffer);
+      arw=result;
+      preview=await createImageBitmap(new Blob([result.jpeg],{
+        type:'image/jpeg'
+      }),{
+        imageOrientation:'none'
+      });
+      const display=orientCanvas(preview,result.orientation),
+      bitmap=await thumbnail(display,1400);
+      const {
+        jpeg,
+        ...report
+      }=result;
+      send('arw',{
+        job,
+        report,
+        bitmap,
+        ms:performance.now()-start
+      },[bitmap]);
+    }else if(m.type==='acr'){
+      acr=null;
+      rasters.clear();
+      const bytes=new Uint8Array(m.buffer),
+      report=parseACR(bytes);
+      for(const r of report.records){
+        if(r.kind==='raster')rasters.set(r.id,await decodeRaster(bytes,r,job));
+        else r.receipt=await inflateReceipt(bytes,r);
+      }
+      acr=report;
+      send('acr',{
+        job,
+        report,
+        ms:performance.now()-start
+      });
+    }else if(m.type==='faces')await prepareFaces(m);
+    else if(m.type==='compile')await compile(m);
+    else if(m.type==='show')await showOutput(m.index,job);
+  }catch(error){
+    send('error',{
+      job,
+      stage:m.type,
+      message:error.message,
+      stack:error.stack
+    });
+  }
+  finally{
+    busy=false;
+  }
+};

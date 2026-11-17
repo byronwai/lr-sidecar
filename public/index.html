@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0d1424">
+  <title>LR Sidecar Compiler</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main>
+    <header><a class="back" href="https://byronwai.github.io/2026/11/16/Lightroom-RAW-Sidecars/">← FIELD NOTES / LIGHTROOM RAW SIDECARS</a><div class="title-row"><h1>LR Sidecar Compiler<span class="cursor">_</span></h1><span class="badge">LOCAL / WEBGL2</span></div><p class="subtitle">ARW <span>is the input texture.</span> XMP <span>is the program.</span> ACR <span>holds the baked textures.</span> JPG <span>is the framebuffer.</span></p></header>
+    <section id="dropzone" aria-label="Load Lightroom files">
+      <div class="drop-intro"><span class="drop-icon">↥</span><div><strong>Drop an edit. See how it’s made.</strong><p>Original + Settings · all three files, in any order · stays on your device</p></div><label class="picker" for="files">Choose files <span>＋</span></label><input id="files" type="file" multiple accept=".arw,.xmp,.acr"></div>
+      <div class="slots"><div class="slot" data-slot="arw"><b>01 / ARW</b><span>Camera preview</span><small>Awaiting original</small></div><div class="slot" data-slot="xmp"><b>02 / XMP</b><span>Edit instructions</span><small>Awaiting program</small></div><div class="slot" data-slot="acr"><b>03 / ACR</b><span>AI masks + patches</span><small>Awaiting textures</small></div></div>
+      <p id="intake-error" class="error" role="alert" hidden></p>
+    </section>
+    <ol class="stages" aria-label="Compiler stages"><li data-stage="arw"><b>1</b><span>Read ARW<small>waiting</small></span></li><li data-stage="xmp"><b>2</b><span>Parse XMP<small>waiting</small></span></li><li data-stage="acr"><b>3</b><span>Parse ACR<small>waiting</small></span></li><li data-stage="compile"><b>4</b><span>Compile<small>waiting</small></span></li></ol>
+    <div class="toolbar"><div><span class="status-dot"></span><span id="status" role="status">Waiting for your three source files</span></div><div class="actions"><label class="check"><input id="fullres" type="checkbox"> Full preview resolution</label><button id="replay" class="quiet" disabled>↻ Replay</button><button id="compile" class="primary" disabled>Compile edit <span>↗</span></button></div></div>
+    <section class="pipeline" aria-label="Edit pipeline">
+      <article class="column input-column"><h2><span>① INPUT</span><small>ARW / preview texture</small></h2><div class="image-frame input-frame" id="input-frame"><canvas id="input" hidden></canvas><div class="empty"><span class="wireframe">▧</span><p>The camera’s rendering</p><small>Embedded JPEG · sensor data untouched</small></div><i class="sweep"></i></div><h3 id="input-name">Original image</h3><p class="facts" id="input-facts">A rendered preview lives inside the RAW.</p><p class="annotation">We start with the camera’s sRGB JPEG. RAW development, camera profiles, and Adobe’s tone operators are approximated.</p></article>
+      <article class="column passes-column"><h2><span>② PASSES</span><small>XMP program × ACR textures</small></h2><div id="stack" class="stack" aria-label="Interactive shader slice stack"></div><div class="stack-controls"><label for="explode">LAYER SEPARATION</label><input id="explode" type="range" min="22" max="100" value="78"><small>Drag to orbit · click to inspect</small></div></article>
+      <article class="column output-column"><h2><span>③ OUTPUT</span><small>Composite → encode</small></h2><div class="image-frame output-frame" id="output-frame"><canvas id="output" hidden></canvas><div class="empty"><span class="wireframe">⌁</span><p>The compiled framebuffer</p><small>Every pass leaves a visible trace</small></div></div><h3 id="output-name">Your edit, compiled</h3><p class="facts" id="output-facts">Orientation → straighten → crop → encode</p><div class="downloads"><a id="download-png" class="download disabled" aria-disabled="true">↓ PNG</a><a id="download-jpg" class="download disabled" aria-disabled="true">↓ JPG</a><button id="show-final" class="quiet" disabled>Show final</button><button id="download-reel" class="download" type="button" aria-describedby="reel-status" disabled>↓ Instagram Reel</button></div><p id="reel-status" class="reel-status" role="status">Compile an edit to export a Reel.</p><p class="annotation" id="output-note">Select a slice to inspect its intermediate framebuffer.</p></article>
+    </section>
+    <div class="legend"><span><i style="--color:#5aa9ff"></i>XMP / numbers + recipes</span><span><i style="--color:#ffa24a"></i>ACR / baked AI textures</span><span><i style="--color:#b98cff"></i>Parametric / recomputed each render</span><span>Processing in sensor orientation</span></div>
+    <section class="inspectors" aria-label="Stage inspectors">
+      <details id="arw-inspector"><summary><span>01</span> ARW / IFD tree <small>container → preview</small></summary><div class="inspector-body" id="arw-details">Load an ARW to inspect TIFF directories.</div></details>
+      <details id="xmp-inspector"><summary><span>02</span> XMP / settings + corrections <small>the program</small></summary><div class="inspector-body" id="xmp-details">Load XMP to inspect settings.</div></details>
+      <details id="acr-inspector"><summary><span>03</span> ACR / record table <small>content-addressed textures</small></summary><div class="inspector-body" id="acr-details">Load ACR to decode every JPEG XL tile.</div></details>
+      <details id="compile-inspector"><summary><span>04</span> Compile / passes + log <small>GPU + encode</small></summary><div class="inspector-body"><div id="pass-controls"></div><pre id="compile-log" aria-live="polite">Ready. No files leave this browser.</pre></div></details>
+    </section>
+    <footer><span>LR SIDECAR COMPILER <b> / </b> AN EDIT, DRAWN AS A PROGRAM</span><span>Client-side experiment · approximate rendering</span></footer>
+  </main><script type="module" src="./main.js"></script>
+  <script type="module" src="./reel.js"></script>
+</body></html>
