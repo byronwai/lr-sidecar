@@ -12,7 +12,8 @@
   <main>
     <header><a class="back" href="https://byronwai.github.io/2026/11/16/Lightroom-RAW-Sidecars/">← FIELD NOTES / LIGHTROOM RAW SIDECARS</a><div class="title-row"><h1>LR Sidecar Compiler<span class="cursor">_</span></h1><span class="badge">LOCAL / WEBGL2</span></div><p class="subtitle">ARW <span>is the input texture.</span> XMP <span>is the program.</span> ACR <span>holds the baked textures.</span> JPG <span>is the framebuffer.</span></p></header>
     <section id="dropzone" aria-label="Load Lightroom files">
-      <div class="drop-intro"><span class="drop-icon">↥</span><div><strong>Drop an edit. See how it’s made.</strong><p>Original + Settings · all three files, in any order · stays on your device</p></div><label class="picker" for="files">Choose files <span>＋</span></label><input id="files" type="file" multiple accept=".arw,.xmp,.acr"></div>
+      <div class="drop-intro"><span class="drop-icon">↥</span><div><strong>Drop an edit. See how it’s made.</strong><p>Original + Settings · all three files, in any order</p></div><label class="picker" for="files">Choose files <span>＋</span></label><input id="files" aria-describedby="file-privacy" type="file" multiple accept=".arw,.xmp,.acr"></div>
+      <p id="file-privacy" class="annotation"><strong>Privacy.</strong> Your photos, sidecars, and exports stay on your device. Processing happens in your browser. No files or edit data are uploaded to a server.</p>
       <div class="slots"><div class="slot" data-slot="arw"><b>01 / ARW</b><span>Camera preview</span><small>Awaiting original</small></div><div class="slot" data-slot="xmp"><b>02 / XMP</b><span>Edit instructions</span><small>Awaiting program</small></div><div class="slot" data-slot="acr"><b>03 / ACR</b><span>AI masks + patches</span><small>Awaiting textures</small></div></div>
       <p id="intake-error" class="error" role="alert" hidden></p>
     </section>
