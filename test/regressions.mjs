@@ -35,9 +35,14 @@ export async function regressionChecks(evaluate,call){
   const reel=await evaluate(`(async()=>{
     const {canvas,frame}=await lrcReel.makeRenderer(),p=lrcReel.prepare().timeline;
     const first=frame(0),rect=first.photoRect;
-    let maxDeviation=0,unsafe=0,emptyPanelFrames=0,sliceFrames=0,outsideSlot=0;
+    let maxDeviation=0,unsafe=0,emptyPanelFrames=0,sliceFrames=0,outsideSlot=0,dimmedFrames=0,incompleteEndFrames=0;
     for(let i=0;i<Math.round(p.duration*30);i++){
       const m=frame(i/30);
+      if(m.photoLevel!==1||m.programLevel!==1)dimmedFrames++;
+      const cue=p.schedule.find(c=>i/30>=c.t0&&i/30<c.t1);
+      if(cue&&['camera','program'].includes(cue.scene)&&i>=Math.round(cue.t1*30)-3){
+        if(!m.panelRows?.length||m.panelRows.some(r=>!r.complete))incompleteEndFrames++;
+      }
       maxDeviation=Math.max(maxDeviation,...Object.keys(rect).map(k=>Math.abs(m.photoRect[k]-rect[k])));
       unsafe+=Number(m.text.some(t=>t.left<60||t.right>960||t.top<250||t.bottom>1480));
       if(['hook','rewind','loop'].includes(m.scene)&&m.panelDrawn)emptyPanelFrames++;
@@ -61,9 +66,9 @@ export async function regressionChecks(evaluate,call){
         if(d)changedPixels++;maxChannelDelta=Math.max(maxChannelDelta,d);
       }
     }
-    return {frames:Math.round(p.duration*30),rect,maxDeviation,unsafe,emptyPanelFrames,sliceFrames,outsideSlot,beats,hold:{changedPixels,maxChannelDelta},hookFonts:first.text.filter(t=>t.text!=='/ framebuffer').map(t=>t.font)};
+    return {frames:Math.round(p.duration*30),rect,maxDeviation,unsafe,emptyPanelFrames,sliceFrames,outsideSlot,dimmedFrames,incompleteEndFrames,beats,hold:{changedPixels,maxChannelDelta},hookFonts:first.text.filter(t=>t.text!=='/ framebuffer').map(t=>t.font)};
   })()`);
-  for(const k of ['maxDeviation','unsafe','emptyPanelFrames','outsideSlot'])assert.equal(reel[k],0,k);
+  for(const k of ['maxDeviation','unsafe','emptyPanelFrames','outsideSlot','dimmedFrames','incompleteEndFrames'])assert.equal(reel[k],0,k);
   assert.ok(reel.sliceFrames>0);
   for(const b of reel.beats){
     if(['rewind','camera','program'].includes(b.scene)){assert.ok(b.early.length);assert.ok(b.early.every(x=>x==='stack'));assert.equal(b.earlyPanel,false);}
@@ -72,6 +77,30 @@ export async function regressionChecks(evaluate,call){
   }
   assert.equal(reel.hold.changedPixels,0);assert.equal(reel.hold.maxChannelDelta,0);
   assert.ok(reel.hookFonts.every(f=>f.includes('Reel Display')));
+  const overlay=await evaluate(`(async()=>{
+    const {createScene}=await import('./reel/scene.js');
+    const solid=color=>{const c=new OffscreenCanvas(64,64),x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,64,64);return c};
+    const original=solid('#808080'),mask=solid('#e4c46a');
+    const canvas=new OffscreenCanvas(1080,1920),ctx=canvas.getContext('2d',{willReadFrequently:true});
+    const pass={index:0,mask,color:'#e4c46a'};
+    const rows=[{label:'WB',from:7201,value:6900,decimals:0},{label:'Exposure',from:0,value:-.11,decimals:2}];
+    const chapter={pass,before:original,after:original,title:'Background darker',chip:'Background',color:'#edb47c',rows};
+    const timeline={duration:1.5,chapterCount:1,coverTitle:'One frame. Many edits.',schedule:[
+      {t0:0,t1:.5,scene:'hook',lead:'photo'},
+      {t0:.5,t1:1,scene:'program',lead:'program',...chapter},
+      {t0:1,t1:1.5,scene:'answer',lead:'photo',...chapter}]};
+    const {frame}=createScene(ctx,{original,compiled:original,timeline});
+    let maxInteriorError=0,emptyPanels=0,wrongNumbers=0;
+    for(let i=15;i<30;i++){
+      const m=frame(i/30),bytes=ctx.getImageData(100,650,800,350).data;
+      for(let n=0;n<bytes.length;n+=4)for(let k=0;k<3;k++)maxInteriorError=Math.max(maxInteriorError,Math.abs(bytes[n+k]-128));
+      if(m.panelDrawn&&!m.panelRows.some(r=>r.text))emptyPanels++;
+      for(const r of m.panelRows||[])if(!['WB 7201 → 6900 K','Exposure 0.00 → −0.11'].some(s=>s.startsWith(r.text)))wrongNumbers++;
+    }
+    return {maxInteriorError,emptyPanels,wrongNumbers,lastRows:frame(29/30).panelRows};
+  })()`);
+  for(const k of ['maxInteriorError','emptyPanels','wrongNumbers'])assert.equal(overlay[k],0,k);
+  assert.ok(overlay.lastRows.every(r=>r.complete),'Every row finishes before the cut');
   const colours=await evaluate(`(async()=>{
     const {buildTimeline}=await import('./reel/timeline.js');
     const canvas=color=>{const c=new OffscreenCanvas(64,64);const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,64,64);return c};
@@ -109,5 +138,5 @@ export async function regressionChecks(evaluate,call){
   assert.deepEqual(tint.outside,tint.before,'Zero mask leaves pixels untouched');
   assert.ok(tint.after[2]>tint.after[0]+10,'Local Color makes blue pixels');
   assert.ok(tint.relativeLuminanceError<.01,'Linear luminance survives gamut fitting');
-  console.log('REGRESSIONS',JSON.stringify({slider,reel,colours,tint}));return {slider,reel,colours,tint,keyboardInspection:true};
+  console.log('REGRESSIONS',JSON.stringify({slider,reel,overlay,colours,tint}));return {slider,reel,overlay,colours,tint,keyboardInspection:true};
 }

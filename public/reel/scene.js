@@ -25,7 +25,6 @@ export async function loadReelFonts(programText = '') {
 }
 
 const clamp = t => Math.max(0, Math.min(1, t));
-const mix = (a, b, t) => a + (b - a) * t;
 const ease = t => {
   t = clamp(t);
   return t * t * (3 - 2 * t);
@@ -107,7 +106,9 @@ function maskOverlay(mask, bakedColor, accent, rect) {
       data.data[output] = rgb[0];
       data.data[output + 1] = rgb[1];
       data.data[output + 2] = rgb[2];
-      data.data[output + 3] = edge ? 248 : Math.round(140 * weights[p]);
+      // A selection indicator must not repaint the edit. Keep only its contour;
+      // broad background / gradient masks otherwise become a flat colour wash.
+      data.data[output + 3] = edge ? 180 : 0;
     }
   }
   ctx.putImageData(data, 0, 0);
@@ -130,13 +131,16 @@ function brackets(ctx, x, y, w, h, accent, len = 18) {
 }
 
 const displayValue = (x, decimals) => x.toFixed(decimals).replace(/^-/, '−');
-function rowText(row, progress) {
+function rowText(row) {
   if (row.text) return row.text;
   const from = row.from ?? 0;
-  const value = mix(from, row.value, progress);
   const units = row.label === 'WB' ? ' K' : '';
-  return `${row.label} ${displayValue(from, Math.min(2, row.decimals))} → ${displayValue(value, row.decimals)}${units}`;
+  return `${row.label} ${displayValue(from, Math.min(2, row.decimals))} → ${displayValue(row.value, row.decimals)}${units}`;
 }
+
+// Leave three complete frames to read the actual values before the cut. The
+// typewriter reveals text; numbers never count through fictitious edit values.
+const panelTyping = since => ease((since - BEAT / 2) / (BEAT / 2 - 3 / FPS));
 
 function wrap(line) {
   const result = [];
@@ -223,12 +227,11 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     const cue = schedule[sceneIndex];
     const since = t - cue.t0;
     const progress = arrive(t, cue.t1, cue.t1 - cue.t0);
-    const priorLead = schedule[sceneIndex - 1]?.lead || cue.lead;
-    const leadFade = ease(since / 0.14);
-    const level = pane => mix(priorLead === pane ? 1 : 0.42, cue.lead === pane ? 1 : 0.42, leadFade);
+    // The opaque panel already separates code from photo. Dimming either pane
+    // introduced a half-beat black flash and made held panel text unreadable.
     const accent = cue.color || SIGNAL;
     const metrics = { scene: cue.scene, lead: cue.lead, photoRect: { ...rect }, panelDrawn: false,
-      photoLevel: level('photo'), programLevel: level('program'), opacity: 0, text: [] };
+      photoLevel: 1, programLevel: 1, opacity: 0, text: [] };
     const setText = (surface, text, x, baseline, font, color, max = 868) => {
       if (!text) return;
       surface.font = font;
@@ -269,7 +272,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         title = cue.rows.length ? 'Set the base exposure' : 'Straight out of camera';
         topic = 'xmp · base settings';
         rows = cue.rows;
-        typing = arrive(t,cue.t1,BEAT/2);
+        typing = panelTyping(since);
         shortPanel = !rows.length || since < BEAT/2;
         break;
       case 'program':
@@ -281,7 +284,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         title = cue.title;
         topic = 'xmp · ' + cue.chip;
         rows = cue.rows;
-        typing = cue.scene === 'program' ? arrive(t, cue.t1, BEAT/2) : 1;
+        typing = cue.scene === 'program' ? panelTyping(since) : 1;
         shortPanel = cue.scene === 'program' && since < BEAT/2;
         break;
       case 'payoff': {
@@ -310,10 +313,6 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     if (before && split > 0) photoSplit(ctx, after, before, rect, split, accent);
     else photo(ctx, after, rect);
     const mask = cue.scene === 'program' ? overlays.get(cue.pass.index) : null;
-    if (!shortPanel && level('photo') < 1) {
-      ctx.fillStyle = `rgba(0,0,0,${1 - level('photo')})`;
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    }
     if (mask?.canvas) {
       metrics.opacity = 0.82 + 0.18 * arrive(t, cue.t0 + BEAT);
       ctx.globalAlpha = metrics.opacity;
@@ -361,7 +360,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
 
     metrics.panelDrawn = true;
     const { x, y, w } = PANEL;
-    const maxRows = rows.flatMap(row => wrap(rowText(row, 1))).slice(0, 6).length;
+    const maxRows = rows.flatMap(row => wrap(rowText(row))).slice(0, 6).length;
     const h = shortPanel ? 70 : Math.min(PANEL.h, 80 + 36 * maxRows);
     const local = inner(t);
     tui.clearRect(x - 5, y - 28, w + 10, h + 33);
@@ -371,16 +370,18 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     tui.fillStyle = '#0b1120';
     tui.fillRect(x + 15, y - 20, 580, 40);
     setText(tui, wrap('/ ' + topic)[0], x + 26, y + 9, CHIP, accent, w-145);
-    const allRows = rows.flatMap(row => wrap(rowText(row, typing)));
+    const allRows = rows.flatMap(row => wrap(rowText(row)));
     const pages = Math.ceil(allRows.length / 6);
     const page = cue.scene === 'hold' ? Math.min(pages - 1, 1 + Math.floor(since / BEAT)) : 0;
     const terminalRows = allRows.slice(Math.max(0, page) * 6, (Math.max(0, page) + 1) * 6);
+    metrics.panelRows = [];
     const rowStep = 36;
     terminalRows.forEach((line, i) => {
       const reveal = typing < 1 ? clamp(typing * 1.6 - 0.09 * i) : 1;
       const letters = Array.from(line);
-      const count = Math.floor(letters.length * reveal);
+      const count = Math.ceil(letters.length * reveal);
       const value = letters.slice(0, count).join('');
+      metrics.panelRows.push({ text: value, target: line, complete: count === letters.length });
       const baseline = y + 59 + i * rowStep;
       if (cue.scene === 'program' && value) {
         tui.font = MONO;
@@ -413,9 +414,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     for (let line = y + 2; line < y + h - 1; line += 3) tui.fillRect(x + 2, line, w - 4, 1);
     ctx.fillStyle = '#050914e8';
     ctx.fillRect(x, y, w, h);
-    ctx.globalAlpha = level('program');
     ctx.drawImage(terminal, x - 5, y - 28, w + 10, h + 33, x - 5, y - 28, w + 10, h + 33);
-    ctx.globalAlpha = 1;
     return drawSlices();
   }
   return { frame, sliceLayout: slices.layout,

@@ -152,7 +152,7 @@ const measuredTitles=await evaluate(`(async()=>{
     globalRows:global.schedule.find(c=>c.scene==='camera').rows,
     emptyCover:buildTimeline(before,[],false).coverTitle};
 })()`);
-assert.equal(measuredTitles.title,'Background → cooler');
+assert.equal(measuredTitles.title,'Background → blue');
 assert.ok(Math.abs(measuredTitles.coverage-.5)<.001,'Resampled half-mask coverage');
 assert.ok(measuredTitles.deltaB<0);
 assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').value,-.1);

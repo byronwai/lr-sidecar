@@ -1,6 +1,6 @@
 # Verification
 
-These measurements come from two sample edits: a night portrait on a Sony FE 20-70 mm F4 G, and a street scene on a Tamron 35-150 mm. The samples are not distributed. Run the [tests](../README.md#tests) against your own ARW + XMP + ACR.
+The lens measurements use two sample edits: a night portrait on a Sony FE 20-70 mm F4 G, and a street scene on a Tamron 35-150 mm. The exported Reel review also includes outdoor and indoor portrait samples. The samples are not distributed. Run the [tests](../README.md#tests) against your own ARW + XMP + ACR.
 
 ## Lens alignment of AI masks
 
@@ -15,16 +15,26 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 
 ## Reel export
 
-| Sample | Duration | Frames | Export time | Average bitrate |
-|---|---:|---:|---:|---:|
-| Portrait | 9.5 s | 285 | 1.6 s | 4.3 Mbps |
-| Street | 11.5 s | 345 | 2.5 s | 5.2 Mbps |
+| Sample | Duration | Frames | Average bitrate after review |
+|---|---:|---:|---:|
+| Portrait | 9.5 s | 285 | 2.82 Mbps |
+| Street | 11.5 s | 345 | 2.50 Mbps |
+| Outdoor portrait | 11.5 s | 345 | 2.20 Mbps |
+| Indoor portrait | 8.5 s | 255 | 3.10 Mbps |
 
 - Output is H.264 High profile at an exact 30 fps (constant frame rate), 1080 × 1920, encoded offline with WebCodecs and muxed with `mp4-muxer`.
 - The photo rectangle is identical on every frame (0 px deviation), so there's no zoom or pan. Within a held beat, photo pixels don't change between frames.
-- Decoded frames match the renderer within 1–2/255 at every half-second, so encode timing is exact.
-- The first and last frames differ by 2.6/255 on average, so the loop is seamless.
+- All four current exports were independently decoded at every frame; presentation timestamps are exactly spaced at 1/30 s, with matching frame counts.
 - Bitrate is low because held frames are static. The target was 12–16 Mbps, but the encoder isn't forced to waste bits on frames that don't change.
+
+## Critical review of exported Reels
+
+- Four sample edits were exported before and after the fixes. Every video frame was sought with an awaited seeked event; quarter-second contact sheets, cut filmstrips and full-resolution RGB difference plots were saved. Sequential decoding checked continuity independently of occasional browser capture stalls.
+- The portrait sample's beige mask wash and the street sample's near-full purple wash were real overlay fills. Selection interiors are now transparent, with contours retained. Photo and panel dimming were removed; values stay readable during held beats.
+- At the off-beat panel opening, measured frame-to-frame RGB differences fell from **39.17 to 4.62** for the portrait sample, **30.67 to 5.93** for the street sample, **26.61 to 5.89** for the outdoor portrait and **28.24 to 3.58** for the indoor portrait (0–255 scale).
+- Numeric counters stopped short of their targets at cuts. They now reveal exact setting values and finish three frames before the cut. All **1,230 after frames** have full pane brightness, no empty value panels and fixed photo geometry; every camera/program beat has complete rows in its final three frames.
+- Selftest and browser integration pass, including regressions for full-frame selection isolation, exact numeric targets, empty panels and incomplete beat-end text. A stale synthetic title expectation was aligned with the existing measured hue classifier.
+- Pacing, the cover split and rewind direction remain owner proposals. Gradient banding was not confirmed; encoder settings were retained.
 
 ## Round 5: packed passes, shared Reel slot, local Color
 
