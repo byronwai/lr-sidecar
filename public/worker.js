@@ -6,12 +6,24 @@ import {
   inflateReceipt
 } from './formats/acr.js';
 import decode from './vendor/jsquash-jxl/decode.js';
+import { detectMaskAlignment } from './render/mask-alignment.js';
 import {
   Pipeline,
   orientCanvas,
   finishCanvas
 } from './render/gl.js';
 let preview=null,arw=null,acr=null,rasters=new Map(),pipeline=null,outputs=new Map(),settings=null,busy=false;
+let alignmentCache=null;
+function rasterAlignment(message){
+  const key=JSON.stringify([message.settings.lensDistort,message.settings.corrections.map(c=>c.masks)]);
+  if(alignmentCache?.key!==key)alignmentCache={key,result:detectMaskAlignment(preview,message.settings,rasters)};
+  const result=alignmentCache.result,mode=message.rasterWarp||'auto';
+  const apply=!!message.settings.lensDistort&&(mode==='warp'||(mode==='auto'&&result.apply));
+  send('mask-alignment',{job:message.job,report:{...result,mode,enabled:apply}});
+  const score=n=>n==null?'n/a':n.toFixed(4);
+  send('log',{job:message.job,message:`AI raster alignment: off=${score(result.off)}, warp=${score(result.warp)}; auto=${result.apply?'Warp':'Off'} (${result.reason}); ${mode} → ${apply?'Warp':'Off'}.`});
+  return apply?message.settings.lensDistort:null;
+}
 const send=(type,data={},transfer=[])=>postMessage({
   type,
   ...data
@@ -54,6 +66,14 @@ async function thumbnail(bitmap,max=1000){
     resizeHeight:Math.max(1,Math.round(bitmap.height*scale))
   });
 }
+// All Reel images share the final crop/straightening, including the before and masks.
+async function reelThumbnail(source,max=1600){
+  const scale=Math.min(1,max/Math.max(source.width,source.height));
+  const canvas=new OffscreenCanvas(Math.round(source.width*scale),Math.round(source.height*scale));
+  const ctx=canvas.getContext('2d');
+  ctx.drawImage(source,0,0,canvas.width,canvas.height);
+  return createImageBitmap(finishCanvas(ctx.getImageData(0,0,canvas.width,canvas.height),settings,settings.orientation||arw.orientation).canvas);
+}
 async function showOutput(index,job){
   const out=outputs.get(index);
   if(!out)throw new Error('Compile this pass before selecting it');
@@ -84,7 +104,7 @@ async function maskFace(mask,color,renderer=pipeline){
     image.data[i+3]=255;
   }
   ctx.putImageData(image,0,0);
-  return createImageBitmap(orientCanvas(c,settings.orientation||arw.orientation));
+  return reelThumbnail(c);
 }
 function patchFace(areas,width,height){
   const c=new OffscreenCanvas(width,height),
@@ -115,6 +135,7 @@ function patchFace(areas,width,height){
 }
 async function prepareFaces(m){
   settings=m.settings;
+  const lensDistort=rasterAlignment(m);
   const width=768,
   height=Math.round(width*preview.height/preview.width),
   renderer=new Pipeline(preview,width,height),
@@ -136,10 +157,11 @@ async function prepareFaces(m){
           image:renderer.zero
         });
         for(const index of group.corrections){
-          const mask=renderer.buildMask(settings.corrections[index],renderer.input,records,settings.globals),
+          const mask=renderer.buildMask(settings.corrections[index],renderer.input,records,settings.globals,m.rasterEdges,lensDistort),
           next=renderer.target();
           renderer.draw(renderer.mask,next,{
             kind:0,
+            warpRaster:false,
             rasterEdgeRadius:[0,0],
             growRaster:false,
             blendMode:0,
@@ -175,6 +197,7 @@ async function prepareFaces(m){
 async function compile(message){
   if(!preview||!acr)throw new Error('Read ARW and ACR before compiling');
   settings=message.settings;
+  const lensDistort=rasterAlignment(message);
   const {
     job,
     groups,
@@ -239,10 +262,11 @@ async function compile(message){
       for(const index of group.corrections){
         const c=settings.corrections[index],
         s=performance.now(),
-        mask=pipeline.buildMask(c,source,rasters,settings.globals,message.rasterEdges),
+        mask=pipeline.buildMask(c,source,rasters,settings.globals,message.rasterEdges,lensDistort),
         next=pipeline.target();
         pipeline.draw(pipeline.mask,next,{
           kind:0,
+          warpRaster:false,
           rasterEdgeRadius:[0,0],
           growRaster:false,
           blendMode:0,
@@ -282,7 +306,7 @@ async function compile(message){
     source=out.texture;
     previous=out;
     const previewBitmap=await pipeline.bitmap(out,1400);
-    const bitmap=await createImageBitmap(orientCanvas(previewBitmap,settings.orientation||arw.orientation));
+    const bitmap=await reelThumbnail(previewBitmap);
     previewBitmap.close();
     send('pass-done',{
       job,
@@ -302,7 +326,8 @@ async function compile(message){
     type:'image/jpeg',
     quality:.95
   }),
-  bitmap=await thumbnail(final.canvas,1600);
+  bitmap=await thumbnail(final.canvas,1600),
+  original=await reelThumbnail(preview);
   send('compiled',{
     job,
     width:final.canvas.width,
@@ -313,7 +338,8 @@ async function compile(message){
     png,
     jpg,
     bitmap
-  },[bitmap]);
+    ,original
+  },[bitmap,original]);
 }
 onmessage=async event=>{
   const m=event.data,
@@ -332,6 +358,7 @@ onmessage=async event=>{
   busy=true;
   try{
     if(m.type==='arw'){
+      alignmentCache=null;
       preview?.close();
       preview=null;
       arw=null;
@@ -355,6 +382,7 @@ onmessage=async event=>{
         ms:performance.now()-start
       },[bitmap]);
     }else if(m.type==='acr'){
+      alignmentCache=null;
       acr=null;
       rasters.clear();
       const bytes=new Uint8Array(m.buffer),

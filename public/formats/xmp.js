@@ -1,4 +1,7 @@
 const CRS='http://ns.adobe.com/camera-raw-settings/1.0/';
+const AUX='http://ns.adobe.com/exif/1.0/aux/';
+const TIFF='http://ns.adobe.com/tiff/1.0/';
+const canonical=(name,uri,local)=>uri===CRS?'crs:'+local:uri===AUX?'aux:'+local:uri===TIFF?'tiff:'+local:/^(crs|aux|tiff):/.test(name)?`{${uri??''}}${local}`:name;
 const scalar = (s,key='') => /Digest|SyncID|^pm_patch|^IngestInfo/.test(key) ? s : /^(true|false)$/i.test(s) ? s.toLowerCase()==='true' : /^[+-]?(\d+\.?\d*|\.\d+)$/.test(s.trim()) ? Number(s) : s;
 // Minimal non-validating XML tree for the Node self-test only. Browsers always use DOMParser.
 function fallbackTree(xml) {
@@ -36,12 +39,22 @@ function fallbackTree(xml) {
     }
     else stack.at(-1).text+=unescape(s.trim());
   }
+  // Resolve namespace aliases here too, so Node and DOMParser accept the same XMP.
+  function namespaces(n,inherited={}){
+    const scope={...inherited};
+    for(const [k,v]of Object.entries(n.attrs))if(k.startsWith('xmlns:'))scope[k.slice(6)]=v;
+    const normalize=name=>{const [prefix,local]=name.split(':');return canonical(name,scope[prefix],local);};
+    n.name=normalize(n.name);
+    n.attrs=Object.fromEntries(Object.entries(n.attrs).map(([k,v])=>[normalize(k),v]));
+    n.children.forEach(c=>namespaces(c,scope));
+  }
+  namespaces(root);
   return root;
 }
 function domTree(el){
   return {
-    name:el.nodeName,
-    attrs:Object.fromEntries(Array.from(el.attributes||[],a=>[a.namespaceURI===CRS?'crs:'+a.localName:a.name,a.value])),
+    name:canonical(el.nodeName,el.namespaceURI,el.localName),
+    attrs:Object.fromEntries(Array.from(el.attributes||[],a=>[canonical(a.name,a.namespaceURI,a.localName),a.value])),
     text:Array.from(el.childNodes||[]).filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join(''),
     children:Array.from(el.children||[],domTree)
   };
@@ -84,7 +97,14 @@ export function parseXMP(input, Parser=globalThis.DOMParser){
   remove=raw.RemoveAreas||[];
   if(!Array.isArray(corrections)||!Array.isArray(remove))throw new Error('Invalid XMP correction sequence');
   const globals=Object.fromEntries(Object.entries(raw).filter(([k])=>!['MaskGroupBasedCorrections','RemoveAreas'].includes(k)));
+  const lensNode=all(tree,'aux:LensDistortInfo')[0];
+  const lensText=all(tree,'rdf:Description').map(n=>n.attrs['aux:LensDistortInfo']).find(v=>v!=null)??lensNode?.text;
+  const coefficients=String(lensText??'').trim().split(/\s+/).map(s=>{
+    if(!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:\/[+-]?(?:\d+\.?\d*|\.\d+))?$/.test(s))return NaN;
+    const [a,b='1']=s.split('/');return Number(a)/Number(b);
+  });
   return {
+    lensDistort:coefficients.length===4&&coefficients.every(Number.isFinite)?coefficients:null,
     capturedAt: desc.attrs['exif:DateTimeOriginal'] ?? desc.children.find(c => c.name === 'exif:DateTimeOriginal')?.text ?? null,
     globals,
     corrections:corrections.map((c,i)=>({

@@ -1,0 +1,17 @@
+@import url('./noto-sans-tc/wght.css');
+
+@font-face {
+  font-family: 'Reel Inter';
+  src: url('./inter/files/inter-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+}
+@font-face {
+  font-family: 'Reel Display';
+  src: url('./geist/files/geist-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+}
+@font-face {
+  font-family: 'Reel Mono';
+  src: url('./jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 800;
+}

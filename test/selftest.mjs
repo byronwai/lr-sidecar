@@ -26,6 +26,7 @@ import {
 import { sonyDecrypt, readSonyWhiteBalance, inferIlluminant, relativeWhiteBalance } from '../public/formats/wb.js';
 import { globalSummary, correctionSummary } from '../public/anim/summary.js';
 import { adjustmentUniforms } from '../public/render/passes.js';
+import { scoreAlignment, warpPosition } from '../public/render/mask-alignment.js';
 import {
   readdir
 } from 'node:fs/promises';
@@ -124,6 +125,24 @@ for(const r of acr.records){
   }
 }
 const xmp=parseXMP(sidecar,null),usage=recordUsage(xmp);
+assert.equal(xmp.lensDistort.length,4,'Sony lens rationals must survive the Node parser');
+assert.ok(Math.abs(xmp.lensDistort[0]-.957925736)<1e-8);
+const lensXML=(field,xmlns='xmlns:aux="http://ns.adobe.com/exif/1.0/aux/"')=>`<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" ${xmlns} crs:Exposure2012="0" ${field}/></rdf:RDF></x:xmpmeta>`;
+assert.deepEqual(parseXMP(lensXML('aux:LensDistortInfo="9/10 -1/20 1/100 0/1"'),null).lensDistort,[.9,-.05,.01,0]);
+assert.deepEqual(parseXMP(lensXML('sony:LensDistortInfo="9/10 -1/20 1/100 0/1"','xmlns:sony="http://ns.adobe.com/exif/1.0/aux/"'),null).lensDistort,[.9,-.05,.01,0]);
+const lensElement=lensXML('').replace('crs:Exposure2012="0" />','crs:Exposure2012="0"><aux:LensDistortInfo>9/10 -1/20 1/100 0/1</aux:LensDistortInfo></rdf:Description>');
+assert.deepEqual(parseXMP(lensElement,null).lensDistort,[.9,-.05,.01,0]);
+for(const text of ['1/0 0/1 0/1 0/1','1 2 3','oops 0 0 0'])assert.equal(parseXMP(lensXML(`aux:LensDistortInfo="${text}"`),null).lensDistort,null);
+assert.equal(parseXMP(lensXML('aux:LensDistortInfo="1 0 0 0"','xmlns:aux="urn:unrelated"'),null).lensDistort,null,'The namespace URI, not its prefix, identifies lens data');
+// Both hypotheses need coverage: coefficients alone must never enable a warp.
+const aw=180,ah=120,ak=[.92,0,0,0];
+const shape=(u,v)=>1/(1+Math.exp((Math.hypot((u-.7)/.19,(v-.35)/.24)-1)*60));
+const sensor=Float32Array.from({length:aw*ah},(_,i)=>shape((i%aw+.5)/aw,(Math.floor(i/aw)+.5)/ah));
+const corrected=Float32Array.from(sensor,(_,i)=>shape(...warpPosition((i%aw+.5)/aw,(Math.floor(i/aw)+.5)/ah,aw,ah,ak)));
+assert.equal(scoreAlignment(sensor,sensor,aw,ah,ak).apply,false,'An uncorrected preview must keep its raster frame');
+assert.equal(scoreAlignment(corrected,sensor,aw,ah,ak).apply,true,'A corrected preview must select warped lookups');
+assert.equal(scoreAlignment(sensor,sensor,aw,ah,[1,0,0,0]).apply,false,'Tied hypotheses must default Off');
+assert.equal(scoreAlignment(new Float32Array(aw*ah),sensor,aw,ah,ak).apply,false,'Textureless previews must default Off');
 const luminance = xmp.corrections.flatMap(c => c.masks).find(m => m.CorrectionRangeMask?.Type === 2);
 assert.ok(luminance?.CorrectionRangeMask.LumRange, 'Self-closing range parameters must survive parsing');
 assert.ok(globalSummary(xmp.globals).some(line => line.startsWith('HSL sat:')));

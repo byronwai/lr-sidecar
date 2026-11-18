@@ -9,6 +9,7 @@ import {
   join
 } from 'node:path';
 import assert from 'node:assert/strict';
+import { regressionChecks } from './regressions.mjs';
 const directory=process.argv[2];
 if(!directory)throw new Error('Usage: node test/browser.mjs <sample-directory> [--full] [--screenshots]');
 const screenshots=process.argv.includes('--screenshots');
@@ -17,7 +18,7 @@ async function saveArtifact(name,data){
   await mkdir(new URL('./artifacts/',import.meta.url),{recursive:true});
   await writeFile(new URL(`./artifacts/${name}`,import.meta.url),Buffer.from(data,'base64'));
 }
-const tabs=await fetch('http://127.0.0.1:9223/json/list').then(r=>r.json()),tab=tabs.find(t=>t.type==='page');
+const tabs=await fetch('http://127.0.0.1:9223/json/list').then(r=>r.json()),tab=tabs.find(t=>process.env.LR_CDP_TARGET?t.id===process.env.LR_CDP_TARGET:t.type==='page');
 const ws=new WebSocket(tab.webSocketDebuggerUrl);
 await new Promise(r=>ws.addEventListener('open',r,{
   once:true
@@ -79,6 +80,9 @@ await call('Page.navigate',{
   url:process.env.LR_SIDECAR_URL || 'http://localhost:4100/'
 });
 await until('!!window.lrc');
+assert.equal(await evaluate("document.querySelector('#dropzone').hasAttribute('tabindex')||document.querySelector('#dropzone').hasAttribute('role')"),false,'Drop section must not nest button semantics');
+assert.equal(await evaluate("document.querySelector('#choose-files').tagName"),'BUTTON');
+assert.deepEqual(await evaluate("[...document.querySelector('[data-slot=jpg]').querySelectorAll('span,small')].map(el=>el.textContent)"),['Lightroom finish','Optional · used for the Reel payoff']);
 await call('Emulation.setEmulatedMedia',{
   features:[{
     name:'prefers-reduced-motion',
@@ -104,6 +108,13 @@ assert.equal(await evaluate("document.querySelector('#intake-error').hidden ? ''
 assert.equal(await evaluate('window.testSamples.length'),3);
 assert.equal(await evaluate("document.querySelectorAll('.slice.placeholder').length"),0,'Real faces should be prepared before compile');
 console.log('PARSED',await evaluate('({chosen:lrc.state.arw.chosen,records:lrc.state.acr.count,corrections:lrc.state.settings.corrections.length,groups:lrc.state.groups.map(g=>g.name)})'));
+assert.equal(await evaluate('lrc.state.settings.lensDistort.length'),4,'DOMParser must read Sony lens coefficients');
+assert.equal(await evaluate("document.querySelector('#raster-warp').value"),'auto');
+const alignment=await evaluate('lrc.state.maskAlignment');
+console.log('AI RASTER ALIGNMENT',alignment);
+assert.ok(Number.isFinite(alignment.off)&&Number.isFinite(alignment.warp));
+assert.equal(alignment.enabled,alignment.apply,'Auto must use the measured decision for prepared slice faces');
+assert.equal(await evaluate("new Set(lrc.state.groups.filter(g=>g.kind==='ai').map(g=>g.color)).size"),3,'Background, subject and vegetation need distinct accents');
 assert.equal(await evaluate("lrc.state.arw.whiteBalance.estimated===false&&document.querySelector('#input-facts').textContent.includes('SR2-derived')"),true);
 const layoutCheck=`(()=>{
   const labels=[...document.querySelectorAll('.slice-label')].map(el=>el.getBoundingClientRect()).sort((a,b)=>a.top-b.top);
@@ -119,6 +130,34 @@ if(process.argv.includes('--full'))await evaluate("document.querySelector('#full
 const compiled=await evaluate('window.lrc.compile().then(output=>({ok:true,output})).catch(e=>({error:e.message,logs:lrc.state.logs}))');
 console.log('COMPILE',compiled);
 assert.equal(compiled.ok,true);
+await regressionChecks(evaluate,call);
+const measuredTitles=await evaluate(`(async()=>{
+  const {buildTimeline}=await import('./reel/timeline.js');
+  const canvas=color=>{const c=new OffscreenCanvas(64,64);const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,64,64);return c};
+  const before=canvas('#808080'),after=canvas('#5486b0'),mask=canvas('#000000');
+  mask.getContext('2d').fillStyle='#e4c46a';mask.getContext('2d').fillRect(0,0,32,64);
+  // Deliberately turn the OUTSIDE of the mask red. The local measurement
+  // must still describe its blue inside, despite a non-identity RedCurve.
+  after.getContext('2d').fillStyle='#ff0000';after.getContext('2d').fillRect(32,0,32,64);
+  const pass={index:0,name:'Background',kind:'ai',color:'#e4c46a',mask,result:after,
+    corrections:[{masks:[{What:'Mask/Image',MaskName:'Background'}],RedCurve:['0,30','255,255'],LocalHighlights2012:-.102804}]};
+  const p=buildTimeline(before,[pass],false),item=p.scores[0];
+  const global=buildTimeline(before,[{index:0,kind:'globals',result:after,globals:{Contrast2012:12.789,Exposure2012:.12345}}],false);
+  return {title:item.title,coverage:item.measured.maskCoverage,deltaB:item.measured.deltaB,
+    rows:p.schedule.find(c=>c.scene==='program').rows,
+    globalRows:global.schedule.find(c=>c.scene==='camera').rows,
+    emptyCover:buildTimeline(before,[],false).coverTitle};
+})()`);
+assert.equal(measuredTitles.title,'Background → cooler');
+assert.ok(Math.abs(measuredTitles.coverage-.5)<.001,'Resampled half-mask coverage');
+assert.ok(measuredTitles.deltaB<0);
+assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').value,-.1);
+assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').decimals,2);
+assert.equal(measuredTitles.globalRows.find(r=>r.label==='Contrast').value,13);
+assert.equal(measuredTitles.globalRows.find(r=>r.label==='Exposure').value,.12);
+assert.equal(measuredTitles.emptyCover,'One frame. Many edits.');
+console.log('MEASURED titles / mask weighting / rounded values pass');
+assert.equal(await evaluate("lrc.state.logs.some(s=>s.includes('AI raster alignment: off='))"),true,'Compile log must include both alignment scores');
 assert.ok(compiled.output.width>0);
 assert.equal(await evaluate('lrc.state.correctionTimings.length'),8);
 const capture=await call('Page.captureScreenshot',{
@@ -131,6 +170,14 @@ await saveArtifact('output-preview.png',output.split(',')[1]);
 const png=await evaluate("fetch(document.querySelector('#download-png').href).then(r=>r.blob()).then(async b=>({size:b.size,type:b.type,bitmap:await createImageBitmap(b).then(i=>{const d=[i.width,i.height];i.close();return d})}))");
 console.log('PNG',png);
 assert.deepEqual(png.bitmap,[compiled.output.width,compiled.output.height]);
+for(const mode of ['off','warp','auto']){
+  await evaluate(`(()=>{const select=document.querySelector('#raster-warp');select.value='${mode}';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  assert.equal(await evaluate('lrc.state.compiled'),false,'Changing alignment must invalidate the previous output');
+  assert.equal(await evaluate('lrc.state.rasterWarp'),mode);
+  await evaluate('lrc.compile()');
+  assert.equal(await evaluate('lrc.state.maskAlignment.enabled'),mode==='warp'||mode==='auto'&&alignment.apply);
+}
+console.log('ALIGNMENT overrides and Auto pass');
 for(let i=0;i<6;i++){
   await evaluate(`document.querySelectorAll('.slice')[${i}].click()`);
   await until(`document.querySelector('#output-name').textContent.startsWith('Pass ${i}')`);

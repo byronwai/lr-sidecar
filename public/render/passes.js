@@ -70,13 +70,26 @@ uniform vec4 rect;uniform vec4 geometry;uniform vec4 radial;uniform vec4 lumRang
 uniform vec3 samples[16];uniform int sampleCount;uniform vec3 labMin;uniform vec3 labMax;
 uniform float strength;uniform float feather;uniform float colorAmount;uniform vec2 samplePoint;
 uniform vec2 rasterEdgeRadius;uniform bool growRaster;
+uniform bool warpRaster;uniform vec4 lensDistort;uniform vec2 imageSize;
+float rasterSample(vec2 position){
+  if(warpRaster){
+    vec2 d=(position-.5)*imageSize;
+    float r2=dot(d,d)/dot(imageSize*.5,imageSize*.5);
+    float f=lensDistort.x+r2*(lensDistort.y+r2*(lensDistort.z+r2*lensDistort.w));
+    position=.5+(position-.5)*f;
+  }
+  vec2 p=(position-rect.xy)/rect.zw;
+  return texture(raster,p).r*step(0.,p.x)*step(p.x,1.)*step(0.,p.y)*step(p.y,1.);
+}
 float rasterCoverage(vec2 p) {
-  float m=texture(raster,p).r;
+  float m=rasterSample(p);
   if(rasterEdgeRadius.x>0.){
     for(int i=0;i<8;i++){
       float a=float(i)*.7853981634;
       vec2 q=p+rasterEdgeRadius*vec2(cos(a),sin(a));
-      float tap=texture(raster,q).r;
+      // Edge radii are preview pixels in the image frame. Warp each tap before
+      // mapping to the raster rect, including for cropped Origin/FullMaskSize.
+      float tap=rasterSample(q);
       m=growRaster?max(m,tap):min(m,tap);
     }
   }
@@ -84,7 +97,7 @@ float rasterCoverage(vec2 p) {
 }
 vec3 lab(vec3 c){c=linearize(c);vec3 xyz=mat3(.4124564,.2126729,.0193339,.3575761,.7151522,.1191920,.1804375,.072175,.9503041)*c/vec3(.95047,1.,1.08883);vec3 f=mix(xyz*7.787+vec3(16./116.),pow(max(xyz,vec3(0)),vec3(1./3.)),step(vec3(.008856),xyz));return vec3((116.*f.y-16.)/100.,(500.*(f.x-f.y)+128.)/255.,(200.*(f.y-f.z)+128.)/255.);}
 void main(){float m=0.;
-if(kind==0){vec2 p=(uv-rect.xy)/rect.zw;vec2 pad=growRaster?rasterEdgeRadius:vec2(0.);m=rasterCoverage(p)*step(-pad.x,p.x)*step(p.x,1.+pad.x)*step(-pad.y,p.y)*step(p.y,1.+pad.y);}
+if(kind==0){m=rasterCoverage(uv);}
 if(kind==1){vec2 d=geometry.zw-geometry.xy;float t=clamp(dot(uv-geometry.xy,d)/max(dot(d,d),1e-8),0.,1.);m=t*t*(3.-2.*t);}
 if(kind==2){vec2 p=uv-(rect.xy+rect.zw*.5);float aspect=max(1e-5,geometry.x);p.x*=aspect;float a=radians(radial.x);p=mat2(cos(a),-sin(a),sin(a),cos(a))*p;vec2 q=abs(p/max(rect.zw*vec2(aspect,1.)*.5,vec2(.00001)));float exponent=clamp(2.+radial.z*.04,.5,8.);float d=pow(pow(q.x,exponent)+pow(q.y,exponent),1./exponent);m=1.-smoothstep(max(0.,1.-feather),1.,d);m=pow(m,log(.5)/log(clamp(radial.y/100.,.01,.99)));if(!flipped)m=1.-m;}
 if(kind==3){float l=texture(lumEq,vec2(lum(linearize(texture(image,uv).rgb)),.5)).r;m=smoothstep(lumRange.x, max(lumRange.x+.00001,lumRange.y),l)*(1.-smoothstep(lumRange.z,max(lumRange.z+.00001,lumRange.w),l));}

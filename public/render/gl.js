@@ -206,7 +206,7 @@ export class Pipeline {
       info
     };
   }
-  buildMask(correction,source,records,globals,rasterEdges={}){
+  buildMask(correction,source,records,globals,rasterEdges={},lensDistort=null){
     let prev=this.target();
     this.draw(this.copy,prev,{}, {
       image:this.zero
@@ -225,6 +225,9 @@ export class Pipeline {
         kind:0,
         rasterEdgeRadius:[0,0],
         growRaster:false,
+        warpRaster:false,
+        lensDistort:[1,0,0,0],
+        imageSize:[this.width,this.height],
         rect:[0,0,1,1],
         geometry:[0,0,1,1],
         radial:[0,0,0,0],
@@ -253,9 +256,11 @@ export class Pipeline {
         values.rect=[origin[0]/size[0],origin[1]/size[1],r.width/size[0],r.height/size[1]];
         const edge=Math.max(-32,Math.min(32,Number(rasterEdges[id])||0));
         values.rasterEdgeRadius=[
-          Math.abs(edge)/(this.previewWidth*values.rect[2]),
-          Math.abs(edge)/(this.previewHeight*values.rect[3])
+          Math.abs(edge)/this.previewWidth,
+          Math.abs(edge)/this.previewHeight
         ];
+        values.warpRaster=!!lensDistort;
+        if(lensDistort)values.lensDistort=lensDistort;
         values.growRaster=edge>0;
         textures.raster=r.texture;
       }
@@ -452,8 +457,11 @@ export function orientCanvas(source,orientation=1){
 export function finishCanvas(pixels,settings,orientation){
   const base=new OffscreenCanvas(pixels.width,pixels.height);
   base.getContext('2d').putImageData(pixels,0,0);
-  const src=orientCanvas(base,orientation),
-  g=settings.globals;
+  return finishOrientedCanvas(orientCanvas(base,orientation),settings,orientation);
+}
+// Reel frames and masks are already oriented. Apply the same crop to each.
+export function finishOrientedCanvas(src,settings,orientation){
+  const g=settings.globals;
   if(!g.HasCrop)return {
     canvas:src,
     crop:{
@@ -473,13 +481,13 @@ export function finishCanvas(pixels,settings,orientation){
   // Lightroom stores crop bounds in SENSOR coordinates, including for orientation 8.
   // Rotate the rectangle's diagonal (not its bounding box), then swap for portrait.
   // The sample gives (6515.84,4343.89) before the swap, matching 4344x6516 export.
-  const ca=Math.cos(angle),
+  const swap=orientation>=5,
+  ca=Math.cos(angle),
   sa=Math.sin(angle),
-  sw=base.width*cw,
-  sh=base.height*ch;
+  sw=(swap?src.height:src.width)*cw,
+  sh=(swap?src.width:src.height)*ch;
   const rw=Math.abs(sw*ca+sh*sa),
-  rh=Math.abs(sh*ca-sw*sa),
-  swap=orientation>=5;
+  rh=Math.abs(sh*ca-sw*sa);
   let w=swap?rh:rw,
   h=swap?rw:rh;
   if(w<=0||h<=0)throw new Error('Crop angle and bounds produce an empty crop');

@@ -54,16 +54,32 @@ export class SliceStack {
       const style=`--i:${i+(6-groups.length)/2};--color:${g.color}`,
       plane=document.createElement('button');
       plane.className=`slice placeholder ${g.kind==='parametric'?'parametric':''}`;
+      plane.tabIndex=-1;
+      plane.setAttribute('aria-hidden','true');
       plane.style.cssText=style;
       plane.setAttribute('aria-label',`Inspect pass ${i}: ${g.name}`);
       plane.innerHTML='<canvas width="195" height="283"></canvas>';
       world.append(plane);
-      const label=document.createElement('div');
+      const label=document.createElement('button');
+      label.type='button';
+      label.disabled=true;
+      plane.disabled=true;
       label.className='slice-label';
+      label.setAttribute('aria-label',`Inspect pass ${i}: ${g.name}`);
+      label.setAttribute('aria-pressed','false');
       label.style.cssText=style;
       label.title=[g.name,...g.parameters].join('\n');
       label.innerHTML=`<strong>pass ${i} · ${escape(g.name)}<span class="timing"></span></strong><span class="source">${escape(g.source)}</span><span class="params">${g.parameters.map(line=>`<span class="param-line">${escape(line)}</span>`).join('')}</span>`;
       this.el.append(label);
+      label.addEventListener('focus',()=>plane.classList.add('focused'));
+      label.addEventListener('blur',()=>plane.classList.remove('focused'));
+      label.addEventListener('keydown',event=>{
+        if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+        event.preventDefault();
+        const labels=[...this.el.querySelectorAll('.slice-label')];
+        const next=event.key==='Home'?0:event.key==='End'?labels.length-1:Math.max(0,Math.min(labels.length-1,i+(event.key==='ArrowDown'?1:-1)));
+        labels[next].focus();
+      });
       for(const node of [plane,label]){
         node.addEventListener('pointerenter',()=>{
           this.el.classList.add('hovering');
@@ -84,6 +100,13 @@ export class SliceStack {
     });
     this.layout();
   }
+  select(index){
+    this.el.querySelectorAll('.slice-label').forEach((label,i)=>label.setAttribute('aria-pressed',String(i===index)));
+    this.el.querySelectorAll('.slice').forEach((plane,i)=>plane.classList.toggle('inspected',i===index));
+  }
+  available(enabled){
+    this.el.querySelectorAll('.slice,.slice-label').forEach(button=>button.disabled=!enabled);
+  }
   setSeparation(value){
     this.separation=value;
     this.el.style.setProperty('--separation',`${value}px`);
@@ -98,15 +121,19 @@ export class SliceStack {
     const slices=[...this.el.querySelectorAll('.slice')];
     if(!labels.length)return;
     const desktop=matchMedia('(min-width: 821px)').matches;
-    let top=desktop?52:88;
+    if(matchMedia('(max-width: 600px)').matches){
+      this.el.style.height='auto';
+      return;
+    }
+    let top=110;
     this.positions=[];
     const heights=labels.map(label=>Math.ceil(label.getBoundingClientRect().height));
     const lastRow=Math.max(heights[0],slices[0].offsetHeight*.3+12);
-    const rowHeights=heights.slice(1).map(height=>Math.max(desktop?52:76,height+10));
+    const rowHeights=heights.slice(1).map(height=>Math.max(desktop?80:90,height+20));
     const naturalHeight=top+lastRow+rowHeights.reduce((total,height)=>total+height,0);
     const controls=this.el.nextElementSibling;
     const sideBottom=Math.max(...this.sideColumns.map(column=>column.getBoundingClientRect().bottom));
-    const available=desktop?sideBottom-this.el.getBoundingClientRect().top-controls.offsetHeight:0;
+    const available=Math.max(620,desktop?sideBottom-this.el.getBoundingClientRect().top-controls.offsetHeight:0);
     const spacing=Math.max(0,available-naturalHeight)/Math.max(1,labels.length-1)+(this.separation-22)*.65;
     for(let i=labels.length-1;i>=0;i--){
       labels[i].style.top=`${top}px`;
