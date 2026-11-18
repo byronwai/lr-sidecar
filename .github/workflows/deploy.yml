@@ -1,0 +1,61 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+# One deploy per branch at a time; a newer push cancels an older preview.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: ${{ github.ref == 'refs/heads/main' && 'Production' || 'Preview' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # main → live site. Any other branch → a preview version with its own URL;
+      # production is untouched. Preview aliases must be DNS-safe.
+      - name: Choose Wrangler command
+        id: plan
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "command=deploy" >> "$GITHUB_OUTPUT"
+          else
+            alias=$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//' | cut -c1-40)
+            echo "command=versions upload --preview-alias ${alias:-preview}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy with Wrangler
+        id: wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          wranglerVersion: '4'   # preview aliases need Wrangler 4
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: ${{ steps.plan.outputs.command }}
+
+      - name: Summary
+        if: always()
+        env:
+          COMMAND: ${{ steps.plan.outputs.command }}
+          OUTPUT: ${{ steps.wrangler.outputs.command-output }}
+        run: |
+          {
+            echo "### wrangler $COMMAND"
+            echo
+            echo "Branch \`$GITHUB_REF_NAME\` · commit \`$GITHUB_SHA\`"
+            echo
+            echo '```'
+            printf '%s\n' "$OUTPUT" | tail -n 15
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
