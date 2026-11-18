@@ -1383,3 +1383,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .stack.tight .slice-label .source { display:none; }
 .stack.tight .slice-label .params .param-line:not(:first-child) { display:none; }
 .stack.tight .slice-label .params .param-line { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Collapsed fan: the card under the pointer (hover, finger press) or keyboard
+   focus comes to the front; it drops back into compositing order on leave. */
+.stack.packed:not(.stack-moving) .slice.focused { z-index:100 !important; }
