@@ -1387,3 +1387,27 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 /* Collapsed fan: the card under the pointer (hover, finger press) or keyboard
    focus comes to the front; it drops back into compositing order on leave. */
 .stack.packed:not(.stack-moving) .slice.focused { z-index:100 !important; }
+
+/* Collapsed fan hover: lift, pop and glow the card under the pointer, part
+   its neighbours like a hand of cards, dim the rest. Only these registered
+   properties animate, so the expand/collapse FLIP motion is never contested. */
+@property --lift { syntax:'<length>'; inherits:false; initial-value:0px; }
+@property --part { syntax:'<length>'; inherits:false; initial-value:0px; }
+@property --pop { syntax:'<number>'; inherits:false; initial-value:1; }
+.stack.packed:not(.stack-moving) .slice {
+  transform:translate(-50%,-50%) translate(calc(var(--x,0px) + var(--part)),calc(var(--y) - var(--lift))) scale(calc(var(--scale,1) * var(--pop))) rotateX(62deg) rotateZ(-35deg);
+  transition:--lift .42s cubic-bezier(.34,1.56,.64,1),--part .42s cubic-bezier(.34,1.56,.64,1),--pop .42s cubic-bezier(.34,1.56,.64,1),
+    box-shadow .3s var(--ease),opacity .3s var(--ease),z-index 0s linear .36s;
+}
+.stack.packed:not(.stack-moving) .slice.focused {
+  --lift:22px; --pop:1.09;
+  box-shadow:0 0 0 1px var(--color),0 0 26px color-mix(in srgb,var(--color) 70%,transparent),0 18px 30px #000a;
+  transition:--lift .42s cubic-bezier(.34,1.56,.64,1),--part .42s cubic-bezier(.34,1.56,.64,1),--pop .42s cubic-bezier(.34,1.56,.64,1),
+    box-shadow .3s var(--ease),opacity .3s var(--ease),z-index 0s linear 0s;
+}
+.stack.packed:not(.stack-moving) .slice.focused ~ .slice { --part:16px; }
+.stack.packed:not(.stack-moving) .slice:has(~ .slice.focused) { --part:-16px; }
+.stack.packed.hovering:not(.stack-moving) .slice:not(.focused) { opacity:.6; }
+@media (prefers-reduced-motion: reduce) {
+  .stack.packed:not(.stack-moving) .slice,.stack.packed:not(.stack-moving) .slice.focused { transition:none; }
+}
