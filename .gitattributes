@@ -1,0 +1,17 @@
+# Normalise text to LF in the repository and working tree.
+* text=auto eol=lf
+
+# Binary assets
+*.wasm  binary
+*.woff2 binary
+*.woff  binary
+*.ttf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.mp4   binary
+
+# Third-party code is vendored verbatim; keep it out of diffs and language stats.
+public/vendor/** linguist-vendored -diff
+public/reel/fonts/** linguist-vendored
+public/fonts/** linguist-vendored

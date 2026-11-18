@@ -1,0 +1,23 @@
+{
+  "name": "lr-sidecar",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Rebuild a Lightroom edit layer by layer in the browser, and export it as an animated Reel",
+  "license": "Apache-2.0",
+  "author": "byronwai",
+  "homepage": "https://lr-sidecar.byronwai.workers.dev/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/byronwai/lr-sidecar.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "serve": "python -m http.server 4100 --directory public",
+    "test": "node test/selftest.mjs",
+    "test:browser": "node test/browser.mjs",
+    "deploy": "npx wrangler deploy"
+  }
+}
