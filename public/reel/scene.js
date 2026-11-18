@@ -252,7 +252,6 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
       case 'hook':
         before = original;
         after = final;
-        split = 0.19 * (1 - arrive(t, BEAT));
         title = coverTitle;
         topic = 'xmp · the edit';
         shortPanel = true;
@@ -280,7 +279,9 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
       case 'hold':
         before = cue.before;
         after = cue.scene === 'program' ? before : cue.after;
-        split = cue.scene === 'answer' ? Math.min(1 - 1 / PHOTO_WIDTH, 1 - progress) : 0;
+        // Reveal over the first beat, then give the finished answer a full beat
+        // at rest. Retain the existing wipe direction and half-second speed.
+        split = cue.scene === 'answer' ? Math.min(1 - 1 / PHOTO_WIDTH, 1 - arrive(t, cue.t0 + BEAT)) : 0;
         title = cue.title;
         topic = 'xmp · ' + cue.chip;
         rows = cue.rows;
@@ -295,14 +296,13 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
           ? Math.max(2 / PHOTO_WIDTH, 0.36 * (arrive(t, sweepStart + BEAT) - arrive(t, sweepStart + BEAT * 2))) : 0;
         title = 'The finished frame';
         topic = reference ? 'Lightroom finish' : 'Compiled finish';
-        rows = cue.also.length ? [{ text: 'Also in the edit' }, ...cue.also.slice(0, 4).map(text => ({ text }))] : [];
+        rows = cue.also.length ? [{ text: 'Also in the edit' }, ...cue.also.slice(0, 3).map(text => ({ text }))] : [];
         shortPanel = !rows.length;
         break;
       }
       case 'loop':
         before = original;
         after = final;
-        split = 0.19 * progress;
         title = coverTitle;
         topic = 'xmp · the edit';
         shortPanel = true;
@@ -360,7 +360,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
 
     metrics.panelDrawn = true;
     const { x, y, w } = PANEL;
-    const maxRows = rows.flatMap(row => wrap(rowText(row))).slice(0, 6).length;
+    const maxRows = rows.length;
     const h = shortPanel ? 70 : Math.min(PANEL.h, 80 + 36 * maxRows);
     const local = inner(t);
     tui.clearRect(x - 5, y - 28, w + 10, h + 33);
@@ -370,10 +370,8 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     tui.fillStyle = '#0b1120';
     tui.fillRect(x + 15, y - 20, 580, 40);
     setText(tui, wrap('/ ' + topic)[0], x + 26, y + 9, CHIP, accent, w-145);
-    const allRows = rows.flatMap(row => wrap(rowText(row)));
-    const pages = Math.ceil(allRows.length / 6);
-    const page = cue.scene === 'hold' ? Math.min(pages - 1, 1 + Math.floor(since / BEAT)) : 0;
-    const terminalRows = allRows.slice(Math.max(0, page) * 6, (Math.max(0, page) + 1) * 6);
+    // One logical row per line; fit long mask expressions to the panel width.
+    const terminalRows = rows.map(rowText);
     metrics.panelRows = [];
     const rowStep = 36;
     terminalRows.forEach((line, i) => {

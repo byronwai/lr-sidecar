@@ -200,7 +200,9 @@ function curveRows(label, points) {
   return lines;
 }
 
-function programRows(pass, correctionIndex = 0) {
+// Preserve the established chapter selection and beat budget independently of
+// the compact Reel panel. These detailed rows are used only to measure density.
+function pacingRows(pass, correctionIndex = 0) {
   if (pass.kind === 'remove') return [{ text: 'Remove · selected patch' }];
   const local = pass.kind !== 'globals';
   const corrections = pass.corrections?.filter(c => c.CorrectionActive !== false) || [];
@@ -226,15 +228,91 @@ function programRows(pass, correctionIndex = 0) {
   for (const [key, label] of [['RedCurve', 'Red'], ['MainCurve', 'RGB'], ['GreenCurve', 'Green'], ['BlueCurve', 'Blue']]) {
     if (settings[key]?.length) curves.push(...curveRows(label, settings[key]));
   }
-  const rest = correctionIndex + 1 < corrections.length ? programRows(pass, correctionIndex + 1) : [];
+  const rest = correctionIndex + 1 < corrections.length ? pacingRows(pass, correctionIndex + 1) : [];
   if (curves.length) return [...rows, ...values, ...curves, ...rest];
   if (!values.length && !rows.length) return rows.concat({ text: 'Base color profile' });
   return rows.concat(values, rest);
 }
 
+// Rank unrounded settings by distance from neutral / slider half-range. Local
+// XMP sliders are normalized to +/-1 (Exposure maps to +/-4 EV); global basic
+// sliders use +/-100, Exposure +/-5 EV, WB 2000..50000 K and Tint +/-150.
+function valueCandidates(pass) {
+  const local = pass.kind !== 'globals';
+  const settings = local ? (pass.corrections || []).filter(c => c.CorrectionActive !== false) : [pass.globals || {}];
+  return settings.flatMap(s => {
+    const values = sliders.flatMap(([key, label]) => {
+      const value = Number(s[(local ? 'Local' : '') + key]);
+      if (!Number.isFinite(value) || value === 0) return [];
+      const decimals = local || key === 'Exposure2012' ? 2 : 0;
+      const from = key === 'Temperature' && !local ? pass.asShotKelvin || 0 : 0;
+      const range = local ? 1 : key === 'Exposure2012' ? 5 : key === 'Temperature' ? 48000 : key === 'Tint' ? 150 : 100;
+      const row = key === 'Temperature' && !local && !from
+        ? { text: `White balance ${Math.round(value)} K` }
+        : { label: key === 'Temperature' && !local ? 'WB' : label, value: Number(value.toFixed(decimals)), decimals, from };
+      return [{ key, strength: Math.abs(value - from) / range, row }];
+    });
+    if (local && Number(s.LocalToningSaturation)) values.push({ key: 'Color', strength: Math.abs(Number(s.LocalToningSaturation)),
+      row: { text: `Color ${Number(s.LocalToningHue || 0).toFixed(0)}° / ${Number(s.LocalToningSaturation).toFixed(2)}` } });
+    if (!local) for (const band of ['Red','Orange','Yellow','Green','Aqua','Blue','Purple','Magenta']) {
+      for (const field of ['Hue','Saturation','Luminance']) {
+        const value = Number(s[field + 'Adjustment' + band]);
+        if (value) values.push({ key: field + band, strength: Math.abs(value) / 100,
+          row: { label: `${band} ${field.toLowerCase()}`, value: Math.round(value), decimals: 0, from: 0 } });
+      }
+    }
+    return values;
+  });
+}
+
+function compactRows(passes, hero, direction, base = false) {
+  const candidates = passes.flatMap(valueCandidates).sort((a,b) => b.strength - a.strength);
+  const chosen = [];
+  const take = (accept, reason) => {
+    const value = candidates.find(c => !chosen.includes(c) && accept(c));
+    if (value) { value.reason = reason; chosen.push(value); }
+  };
+  if (base) take(c => c.key === 'Temperature' && (c.row.label === 'WB' || c.row.text), 'White balance first');
+  take(c => c.key === 'Exposure2012', 'Exposure first');
+  if (!base) {
+    const curves = (hero.corrections || []).filter(c => c.CorrectionActive !== false).flatMap(s =>
+      [['MainCurve','RGB'],['RedCurve','Red'],['GreenCurve','Green'],['BlueCurve','Blue']].flatMap(([key,label]) => {
+        const strength = Math.max(0, ...(s[key] || []).map(p => { const [x,y] = String(p).split(',').map(Number); return Math.abs(y-x)/255; }));
+        return strength ? [{ label, strength, points: s[key].length }] : [];
+      }));
+    const channel = curves.filter(c => c.label !== 'RGB');
+    const hueMove = candidates.find(c => ['Temperature','Tint','Color'].includes(c.key))?.strength || 0;
+    const curveColour = channel.length && !['darker','lift','refine','richer','softer'].includes(direction)
+      && Math.max(...channel.map(c => c.strength)) > hueMove;
+    if (curveColour) {
+      const names = [...new Set(curves.map(c => c.label))];
+      chosen.push({ row: { text: names.length === 1 ? `${names[0]} curve · ${curves[0].points} pts` : `${names.join(' + ')} curves` },
+        reason: 'Channel curve leads the measured colour change' });
+    } else take(c => ['Temperature','Tint','Saturation','Color'].includes(c.key), 'Largest colour move relative to slider range');
+    while (chosen.length < 3) {
+      const count = chosen.length;
+      take(c => ['Highlights2012','Shadows2012','Contrast2012'].includes(c.key), 'Largest remaining tone move relative to slider range');
+      if (chosen.length === count) break;
+    }
+  }
+  while (chosen.length < 3) {
+    const count = chosen.length;
+    take(() => true, 'Strongest remaining move relative to slider range');
+    if (chosen.length === count) break;
+  }
+  // The expression identifies the chapter's representative selection, as in
+  // the full program; merged passes stay in the edit, rather than adding rows.
+  const masks = hero.corrections?.find(c => c.CorrectionActive !== false)?.masks.filter(m => m.MaskActive !== false) || [];
+  const mask = masks.length ? { text: maskExpression(masks, m => m.What === 'Mask/Image'
+    ? m.MaskName || 'selection' : maskNames[m.What] || 'mask') }
+    : hero.kind === 'remove' ? { text: 'Remove · selected patch' } : null;
+  const rows = [...(!base && mask ? [mask] : []), ...chosen.map(c => ({ ...c.row, reason: c.reason }))];
+  return rows.length ? rows : [{ text: 'Base color profile' }];
+}
+
 function allocateBeats(groups) {
   const total = groups.reduce((sum, group) => sum + group.score, 0) || 1;
-  const beats = groups.map(group => Math.min(6, Math.max(2, 1 + Math.ceil(group.items.flatMap(item => programRows(item.pass)).length / 6))));
+  const beats = groups.map(group => Math.min(6, Math.max(2, 1 + Math.ceil(group.items.flatMap(item => pacingRows(item.pass)).length / 6))));
   const minimum = beats.reduce((a,b) => a+b, 0);
   const budget = Math.min(18, Math.max(minimum, 8, groups.length * 3), groups.length * 6);
   for (let remaining = budget - minimum; remaining > 0; remaining--) {
@@ -256,7 +334,7 @@ export function buildTimeline(original, passes, hasReference) {
   });
   const groups = [];
   let rewindResult = original;
-  const rewindRows = [];
+  const rewindPasses = [];
   for (const item of scores) {
     // Establish global colour / a whole-frame exposure in the rewind, instead
     // of spending a full mask chapter on a rectangle covering the entire photo.
@@ -264,8 +342,7 @@ export function buildTimeline(original, passes, hasReference) {
     if (!groups.length && allFrame) {
       item.disposition = 'folded into rewind';
       rewindResult = item.pass.result;
-      const rows = programRows(item.pass);
-      rewindRows.push(...rows.filter(row => row.label || /white balance/i.test(row.text)).slice(0, 2));
+      rewindPasses.push(item.pass);
       continue;
     }
     if (item.score < MIN_SCORE) continue;
@@ -280,7 +357,7 @@ export function buildTimeline(original, passes, hasReference) {
     });
   }
   const chosen = groups.sort((a, b) => b.score - a.score).slice(0, 5);
-  const minimumBeats = group => Math.min(6, Math.max(2, 1 + Math.ceil(group.items.flatMap(item => programRows(item.pass)).length / 6)));
+  const minimumBeats = group => Math.min(6, Math.max(2, 1 + Math.ceil(group.items.flatMap(item => pacingRows(item.pass)).length / 6)));
   // Dense program pages must not turn a large edit into a >15 s pipeline tour.
   // The list is already in impact order, so remove its least visible chapter.
   while (chosen.reduce((sum, group) => sum + minimumBeats(group), 0) > 18) chosen.pop();
@@ -294,23 +371,27 @@ export function buildTimeline(original, passes, hasReference) {
   }
   cue('hook', 3, 'photo');
   cue('rewind', 1, 'photo');
-  cue('camera', 1, 'program', { before: original, after: rewindResult, rows: rewindRows });
+  cue('camera', 1, 'program', { before: original, after: rewindResult,
+    rows: rewindPasses.length ? compactRows(rewindPasses, rewindPasses[0], null, true) : [] });
   let previous = rewindResult;
+  let payoffBeats = 4;
   chosen.forEach((group, index) => {
     const { hero, end, items } = group;
     items.forEach(item => { item.disposition = item === hero ? `${beats[index]} beats` : `merged into ${hero.pass.index}`; });
     const chapter = {
       pass: hero.pass, before: previous, after: end.pass.result, title: hero.title,
-      chip: hero.chip, color: ACCENTS[group.category]||ACCENTS.subject, rows: items.flatMap(item => programRows(item.pass)), number: index
+      chip: hero.chip, color: ACCENTS[group.category]||ACCENTS.subject,
+      rows: compactRows([hero.pass], hero.pass, hero.direction), number: index
     };
     cue('program', 1, 'program', chapter);
-    cue('answer', 1, 'photo', chapter);
-    if (beats[index] > 2) cue('hold', beats[index] - 2, 'photo', chapter);
+    cue('answer', 2, 'photo', chapter);
+    if (beats[index] > 3) cue('hold', beats[index] - 3, 'photo', chapter);
+    else if (beats[index] === 2) payoffBeats = Math.max(3, payoffBeats - 1);
     previous = end.pass.result;
   });
   const skipped = scores.filter(item => item.disposition === 'skipped').map(item => item.title);
   const also = [...new Set(skipped)];
-  cue('payoff', 4, 'photo', { also });
+  cue('payoff', payoffBeats, 'photo', { also });
   cue('loop', 2, 'photo');
   return { schedule, scores, duration: cursor * BEAT, chapterCount: chosen.length, hasReference, coverTitle: measuredCover(chosen) };
 }

@@ -25,7 +25,7 @@ async function encodeOffline(canvas, frame, duration, config, onProgress) {
     video: { codec: 'avc', width: WIDTH, height: HEIGHT, frameRate: FPS }
   });
   const channel = new MessageChannel();
-  let failed, profile, chunks = 0;
+  let failed, profile, openingKeyframe, chunks = 0;
   const failure = new AbortController();
   const fail = error => {
     failed = error;
@@ -34,6 +34,18 @@ async function encodeOffline(canvas, frame, duration, config, onProgress) {
   const encoder = new VideoEncoder({
     output(chunk, metadata) {
       try {
+        // The renderer closes on frame 0. Reuse its independently decodable
+        // IDR at the final timestamp too: rate control can otherwise quantize
+        // the identical closing image differently and introduce a loop flash.
+        if (chunk.timestamp === 0) {
+          if (chunk.type !== 'key') throw new Error('The opening frame must be a keyframe.');
+          openingKeyframe = new Uint8Array(chunk.byteLength);
+          chunk.copyTo(openingKeyframe);
+        } else if (chunk.timestamp === Math.round((count - 1) * 1_000_000 / FPS)) {
+          if (!openingKeyframe) throw new Error('The opening keyframe is unavailable.');
+          chunk = new EncodedVideoChunk({ type: 'key', timestamp: chunk.timestamp,
+            duration: chunk.duration, data: openingKeyframe });
+        }
         if (metadata?.decoderConfig?.description) {
           const description = metadata.decoderConfig.description;
           profile = ArrayBuffer.isView(description)

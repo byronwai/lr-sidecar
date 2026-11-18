@@ -17,10 +17,10 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 
 | Sample | Duration | Frames | Average bitrate after review |
 |---|---:|---:|---:|
-| Portrait | 9.5 s | 285 | 2.82 Mbps |
-| Street | 11.5 s | 345 | 2.50 Mbps |
-| Outdoor portrait | 11.5 s | 345 | 2.20 Mbps |
-| Indoor portrait | 8.5 s | 255 | 3.10 Mbps |
+| Portrait | 9.5 s | 285 | 2.47 Mbps |
+| Street | 11.5 s | 345 | 2.22 Mbps |
+| Outdoor portrait | 12.0 s | 360 | 1.92 Mbps |
+| Indoor portrait | 8.5 s | 255 | 2.69 Mbps |
 
 - Output is H.264 High profile at an exact 30 fps (constant frame rate), 1080 × 1920, encoded offline with WebCodecs and muxed with `mp4-muxer`.
 - The photo rectangle is identical on every frame (0 px deviation), so there's no zoom or pan. Within a held beat, photo pixels don't change between frames.
@@ -34,7 +34,7 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 - At the off-beat panel opening, measured frame-to-frame RGB differences fell from **39.17 to 4.62** for the portrait sample, **30.67 to 5.93** for the street sample, **26.61 to 5.89** for the outdoor portrait and **28.24 to 3.58** for the indoor portrait (0–255 scale).
 - Numeric counters stopped short of their targets at cuts. They now reveal exact setting values and finish three frames before the cut. All **1,230 after frames** have full pane brightness, no empty value panels and fixed photo geometry; every camera/program beat has complete rows in its final three frames.
 - Selftest and browser integration pass, including regressions for full-frame selection isolation, exact numeric targets, empty panels and incomplete beat-end text. A stale synthetic title expectation was aligned with the existing measured hue classifier.
-- Pacing, the cover split and rewind direction remain owner proposals. Gradient banding was not confirmed; encoder settings were retained.
+- The pacing and cover proposals were subsequently approved and applied below; rewind direction is retained. Gradient banding was not confirmed; encoder settings were retained.
 
 ## Round 5: packed passes, shared Reel slot, local Color
 
@@ -43,6 +43,22 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 - Landscape sample local Color is applied in linear light with luminance-preserving gamut fitting. Measured sky HSV hue moves **236.82° → 229.43°**, toward the 230° swatch. Mean masked RGB error against the Lightroom export improves **28.21 → 26.47/255**; the export still differs visibly.
 - Titles name colour from measurements inside each mask. A colour family is named when the hue clearly moves toward the mask's dominant OKLCh hue, or when the mean hue rotates by more than 15°, in which case the family is the direction of the OKLab colour change. Otherwise titles fall back to warmer, cooler, darker or lift. Clothes, Hair and Skin are named separately. Across four sample edits, the covers were "Paint the background red" (portrait: background hue +32°, change direction ≈ 41°), "One frame. Many edits." (twice) and "A deeper background".
 - Four sample tables, title changes and artifact names are in the round 5 results. Contact sheets await seeked before every draw. Selftest, browser integration, all eight hue families, sub-part names, local tint luminance and mask isolation pass.
+
+## Approved Reel proposals
+
+| Sample | Previous duration | Current duration | First/last mean abs RGB (0–255) |
+|---|---:|---:|---:|
+| Portrait | 9.5 s | 9.5 s | 0 |
+| Street | 11.5 s | 11.5 s | 0 |
+| Outdoor portrait | 11.5 s | 12.0 s | 0 |
+| Indoor portrait | 8.5 s | 8.5 s | 0 |
+
+- Hook, loop and cover JPG show the finished photo and headline, with no comparison strip or divider. The rewind still reveals the camera original in its existing direction.
+- All 11 chapter answers last 1.0 s: a 0.5 s wipe followed by 0.5 s at rest. Each takes a beat from its own hold first, then from payoff down to a 1.5 s minimum. Chapter selection and the half-second grid are preserved.
+- Chapter panels show one mask expression and at most three selected value rows. Exposure comes first, then the strongest colour move, then tone moves ranked against slider ranges. Colour-driving curves use one summary row; incidental curve points and hold paging are absent. Base panels show WB, exposure and the strongest other move. Full page program details are unchanged.
+- Every one of the 1,245 rendered frames passed the cover, row-count, curve-list, fixed-photo and typing audits: 0 px photo rectangle deviation, at most four panel rows, and complete text in each beat's final three frames. All four contact sheets seek at 0.25 s steps and await `seeked` before drawing.
+- The closing MP4 keyframe reuses the opening keyframe, avoiding different compression of identical source pixels. Browser and independent decoding both measure exactly 0 first/last RGB difference for every sample. Independent decoding checks all frames and exact 30 fps timestamps.
+- Selftest and browser integration pass, including regressions for compact row priorities, curve summaries, answer duration/rest, beat grid, payoff floor, no paging, clean covers, fixed geometry, typing deadlines and decoded loop equality.
 
 ## Page
 

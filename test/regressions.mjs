@@ -35,14 +35,20 @@ export async function regressionChecks(evaluate,call){
   const reel=await evaluate(`(async()=>{
     const {canvas,frame}=await lrcReel.makeRenderer(),p=lrcReel.prepare().timeline;
     const first=frame(0),rect=first.photoRect;
+    const x=canvas.getContext('2d',{willReadFrequently:true}),firstPixels=x.getImageData(0,0,1080,1920).data;
     let maxDeviation=0,unsafe=0,emptyPanelFrames=0,sliceFrames=0,outsideSlot=0,dimmedFrames=0,incompleteEndFrames=0;
+    let splitCoverFrames=0,overfullPanels=0,curvePointFrames=0,pagedFrames=0;
     for(let i=0;i<Math.round(p.duration*30);i++){
       const m=frame(i/30);
       if(m.photoLevel!==1||m.programLevel!==1)dimmedFrames++;
       const cue=p.schedule.find(c=>i/30>=c.t0&&i/30<c.t1);
-      if(cue&&['camera','program'].includes(cue.scene)&&i>=Math.round(cue.t1*30)-3){
+      if(['hook','loop'].includes(cue.scene)&&m.split!==0)splitCoverFrames++;
+      if((m.panelRows?.length||0)>4)overfullPanels++;
+      if(m.panelRows?.some(r=>/\\(\\s*\\d+\\s*,\\s*\\d+\\s*\\)/.test(r.target)))curvePointFrames++;
+      if(cue&&['camera','program','answer','hold'].includes(cue.scene)&&cue.rows.length&&i>=Math.round(cue.t1*30)-3){
         if(!m.panelRows?.length||m.panelRows.some(r=>!r.complete))incompleteEndFrames++;
       }
+      if(['answer','hold'].includes(cue.scene)&&m.panelRows?.map(r=>r.target).join('|')!==frame(cue.t0).panelRows?.map(r=>r.target).join('|'))pagedFrames++;
       maxDeviation=Math.max(maxDeviation,...Object.keys(rect).map(k=>Math.abs(m.photoRect[k]-rect[k])));
       unsafe+=Number(m.text.some(t=>t.left<60||t.right>960||t.top<250||t.bottom>1480));
       if(['hook','rewind','loop'].includes(m.scene)&&m.panelDrawn)emptyPanelFrames++;
@@ -51,6 +57,10 @@ export async function regressionChecks(evaluate,call){
         outsideSlot+=Number(b.x<s.x||b.y<s.y||b.x+b.w>s.x+s.w||b.y+b.h>s.y+s.h);
       }
     }
+    frame((Math.round(p.duration*30)-1)/30);const lastPixels=x.getImageData(0,0,1080,1920).data;
+    let loopDelta=0;for(let n=0;n<firstPixels.length;n+=4)for(let k=0;k<3;k++)loopDelta+=Math.abs(firstPixels[n+k]-lastPixels[n+k]);
+    loopDelta/=1080*1920*3;
+    const answers=p.schedule.filter(c=>c.scene==='answer').map(c=>({duration:c.t1-c.t0,restSplit:frame(c.t0+.5).split}));
     const beats=p.schedule.filter(c=>['rewind','camera','program','answer','hold'].includes(c.scene)).map(c=>{
       const a=frame(c.t0+.1),b=frame(c.t0+.4);
       return {scene:c.scene,index:c.pass?.index,early:a.slices.map(s=>s.mode),late:b.slices.map(s=>s.mode),earlyPanel:a.panelDrawn,latePanel:b.panelDrawn,
@@ -66,9 +76,15 @@ export async function regressionChecks(evaluate,call){
         if(d)changedPixels++;maxChannelDelta=Math.max(maxChannelDelta,d);
       }
     }
-    return {frames:Math.round(p.duration*30),rect,maxDeviation,unsafe,emptyPanelFrames,sliceFrames,outsideSlot,dimmedFrames,incompleteEndFrames,beats,hold:{changedPixels,maxChannelDelta},hookFonts:first.text.filter(t=>t.text!=='/ framebuffer').map(t=>t.font)};
+    return {frames:Math.round(p.duration*30),rect,maxDeviation,unsafe,emptyPanelFrames,sliceFrames,outsideSlot,dimmedFrames,incompleteEndFrames,
+      splitCoverFrames,overfullPanels,curvePointFrames,pagedFrames,loopDelta,answers,beatGrid:p.schedule.every(c=>Number.isInteger(c.t0*2)&&Number.isInteger(c.t1*2)),
+      payoff:p.schedule.find(c=>c.scene==='payoff').t1-p.schedule.find(c=>c.scene==='payoff').t0,
+      beats,hold:{changedPixels,maxChannelDelta},hookFonts:first.text.filter(t=>t.text!=='/ framebuffer').map(t=>t.font)};
   })()`);
   for(const k of ['maxDeviation','unsafe','emptyPanelFrames','outsideSlot','dimmedFrames','incompleteEndFrames'])assert.equal(reel[k],0,k);
+  for(const k of ['splitCoverFrames','overfullPanels','curvePointFrames','pagedFrames','loopDelta'])assert.equal(reel[k],0,k);
+  assert.equal(reel.beatGrid,true);assert.ok(reel.payoff>=1.5);
+  assert.ok(reel.answers.length>0);for(const a of reel.answers){assert.equal(a.duration,1);assert.equal(a.restSplit,0);}
   assert.ok(reel.sliceFrames>0);
   for(const b of reel.beats){
     if(['rewind','camera','program'].includes(b.scene)){assert.ok(b.early.length);assert.ok(b.early.every(x=>x==='stack'));assert.equal(b.earlyPanel,false);}
@@ -77,6 +93,37 @@ export async function regressionChecks(evaluate,call){
   }
   assert.equal(reel.hold.changedPixels,0);assert.equal(reel.hold.maxChannelDelta,0);
   assert.ok(reel.hookFonts.every(f=>f.includes('Reel Display')));
+  const panelChoices=await evaluate(`(async()=>{
+    const {buildTimeline}=await import('./reel/timeline.js');
+    const solid=color=>{const c=new OffscreenCanvas(64,64);const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,64,64);return c};
+    const before=solid('#808080'),after=solid('#b0b0b0');
+    const correction={LocalExposure2012:.001,LocalTemperature:.01,LocalTint:.2,LocalSaturation:.15,
+      LocalHighlights2012:.5,LocalShadows2012:.6,LocalContrast2012:.4,MainCurve:['0,0','128,100','255,255'],
+      masks:[{What:'Mask/Image',MaskName:'Subject 1'}]};
+    const local=buildTimeline(before,[{index:0,name:'Subject 1',kind:'ai',result:after,corrections:[correction]}],false);
+    const global=buildTimeline(before,[{index:0,kind:'globals',result:after,asShotKelvin:6000,
+      globals:{Temperature:6500,Exposure2012:.01,Tint:50,Highlights2012:40}}],false);
+    const colour=buildTimeline(before,[{index:0,name:'Background',kind:'ai',result:solid('#5486b0'),
+      corrections:[{LocalExposure2012:.1,LocalHighlights2012:.2,RedCurve:['0,30','128,150','255,255'],masks:[{What:'Mask/Image',MaskName:'Background'}]}]}],false);
+    return {local:local.schedule.find(c=>c.scene==='program').rows,global:global.schedule.find(c=>c.scene==='camera').rows,
+      colour:colour.schedule.find(c=>c.scene==='program').rows};
+  })()`);
+  assert.deepEqual(panelChoices.local.map(r=>r.label||r.text),['Subject 1','Exposure','Tint','Shadows'],'Exposure, strongest colour, then strongest tone; omit incidental RGB curve');
+  assert.deepEqual(panelChoices.global.map(r=>r.label||r.text),['WB','Exposure','Highlights'],'WB, exposure, then range-normalized strongest other move');
+  assert.ok(panelChoices.colour.some(r=>r.text==='Red curve · 3 pts'),'A colour-driving curve gets exactly one summary row');
+  assert.ok(panelChoices.colour.length<=4);
+  const encodedLoop=await evaluate(`(async()=>{
+    const result=await lrcReel.export(),v=document.querySelector('#reel-preview');v.pause();
+    if(!v.videoWidth)await new Promise(r=>v.addEventListener('loadedmetadata',r,{once:true}));
+    const c=new OffscreenCanvas(1080,1920),x=c.getContext('2d',{willReadFrequently:true});
+    const read=async time=>{await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Loop seek timeout')),15000);
+      v.addEventListener('seeked',()=>{clearTimeout(timer);resolve()},{once:true});v.currentTime=time});
+      x.drawImage(v,0,0);return x.getImageData(0,0,1080,1920).data};
+    const a=await read(.5/30),b=await read(result.duration-.5/30);
+    let delta=0;for(let n=0;n<a.length;n+=4)for(let k=0;k<3;k++)delta+=Math.abs(a[n+k]-b[n+k]);
+    return {delta:delta/(1080*1920*3),mode:result.mode};
+  })()`);
+  assert.equal(encodedLoop.delta,0,'Decoded first/last MP4 frames match exactly');
   const overlay=await evaluate(`(async()=>{
     const {createScene}=await import('./reel/scene.js');
     const solid=color=>{const c=new OffscreenCanvas(64,64),x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,64,64);return c};
@@ -138,5 +185,5 @@ export async function regressionChecks(evaluate,call){
   assert.deepEqual(tint.outside,tint.before,'Zero mask leaves pixels untouched');
   assert.ok(tint.after[2]>tint.after[0]+10,'Local Color makes blue pixels');
   assert.ok(tint.relativeLuminanceError<.01,'Linear luminance survives gamut fitting');
-  console.log('REGRESSIONS',JSON.stringify({slider,reel,overlay,colours,tint}));return {slider,reel,overlay,colours,tint,keyboardInspection:true};
+  console.log('REGRESSIONS',JSON.stringify({slider,reel,panelChoices,encodedLoop,overlay,colours,tint}));return {slider,reel,panelChoices,encodedLoop,overlay,colours,tint,keyboardInspection:true};
 }
