@@ -11,7 +11,7 @@ export class SliceStack {
     this.onSelect=onSelect;
     this.reduced=matchMedia('(prefers-reduced-motion: reduce)');
     this.groups=[];
-    this.separation=22;
+    this.separation=0;
     this.positions=[];
     this.drag=null;
     this.ignoreClick=false;
@@ -72,7 +72,7 @@ export class SliceStack {
   setGroups(groups){
     this.groups=groups;
     this.el.style.setProperty('--count',groups.length);
-    this.el.innerHTML=`<svg class="stack-arc" viewBox="0 0 600 110" aria-hidden="true"><path d="M 100 90 Q 355 -55 590 65"/><text x="350" y="60">composite passes → encode ↗</text></svg><div class="stack-world"></div><div class="beam"></div>`;
+    this.el.innerHTML=`<div class="stack-world"></div><div class="beam"></div>`;
     const world=this.el.querySelector('.stack-world');
     groups.forEach((g,i)=>{
       const style=`--i:${i+(6-groups.length)/2};--color:${g.color}`,
@@ -156,6 +156,9 @@ export class SliceStack {
     const slices=[...this.el.querySelectorAll('.slice')];
     if(!labels.length)return;
     this.el.classList.remove('packed');
+    // Below the default spread the deck tightens; labels condense to one line
+    // so rows can close up without text colliding (full params on hover/inspect).
+    this.el.classList.toggle('tight',this.expanded&&this.separation<22);
     const desktop=matchMedia('(min-width: 821px)').matches;
     if(matchMedia('(max-width: 600px)').matches){
       this.el.style.height='auto';
@@ -164,11 +167,11 @@ export class SliceStack {
       this.el.style.height=`${Math.ceil(expandedHeight*(this.expanded?1:.3))}px`;
       this.el.closest('.passes-column').style.setProperty('--packed-height',`${Math.ceil(expandedHeight*.3)}px`);
       this.el.style.setProperty('--expanded-height',`${expandedHeight}px`);
-      labels.forEach((label,i)=>{label.style.setProperty('--packed-y',`${48+i*24}px`);label.tabIndex=this.expanded?0:-1;});
-      slices.forEach((slice,i)=>slice.style.setProperty('--y',`${80+i*10}px`));
+      labels.forEach((label,i)=>{label.style.setProperty('--packed-y',`${12+i*24}px`);label.tabIndex=this.expanded?0:-1;});
+      slices.forEach((slice,i)=>slice.style.setProperty('--y',`${48+i*10}px`));
       return;
     }
-    let top=110;
+    let top=40;
     this.positions=[];
     const heights=labels.map(label=>Math.ceil(label.getBoundingClientRect().height));
     const lastRow=Math.max(heights[0],slices[0].offsetHeight*.3+12);
@@ -177,21 +180,28 @@ export class SliceStack {
     const controls=this.el.nextElementSibling;
     const sideBottom=Math.max(...this.sideColumns.map(column=>column.getBoundingClientRect().bottom));
     const available=Math.max(620,desktop?sideBottom-this.el.getBoundingClientRect().top-controls.offsetHeight:0);
-    const spacing=Math.max(0,available-naturalHeight)/Math.max(1,labels.length-1)+(this.separation-22)*.65;
+    // Separation 22–100 keeps the original spread (fill the column, then widen).
+    // Below 22 the deck tightens toward 0, where rows are ~30% closer than the
+    // old minimum and the slices overlap; label text never collides.
+    const fill=Math.max(0,available-naturalHeight)/Math.max(1,labels.length-1);
+    const meanRow=rowHeights.length?rowHeights.reduce((a,b)=>a+b,0)/rowHeights.length:0;
+    const tight=Math.min(1,this.separation/22);
+    const spacing=this.separation>=22?fill+(this.separation-22)*.65:fill*tight-(1-tight)*.15*meanRow;
     for(let i=labels.length-1;i>=0;i--){
       labels[i].style.top=`${top}px`;
       const center=top+12;
       slices[i].style.setProperty('--y',`${center}px`);
       this.positions[i]=center;
-      if(i>0)top+=rowHeights[i-1]+spacing;
+      if(i>0)top+=Math.max(heights[i]+6,rowHeights[i-1]+spacing);
     }
-    const height=Math.ceil(Math.max(available,top+lastRow,(labels.length*24+70)/.3));
+    const height=Math.ceil(Math.max(this.separation>=22?available:0,top+lastRow));
+    const packedHeight=Math.ceil(Math.max(labels.length*24+70,height*.3));
     this.el.classList.toggle('packed',!this.expanded);
-    this.el.style.height=`${Math.ceil(height*(this.expanded?1:.3))}px`;
-    this.el.closest('.passes-column').style.setProperty('--packed-height',`${Math.ceil(height*.3)}px`);
+    this.el.style.height=`${this.expanded?height:packedHeight}px`;
+    this.el.closest('.passes-column').style.setProperty('--packed-height',`${packedHeight}px`);
     this.el.style.setProperty('--expanded-height',`${height}px`);
-    labels.forEach((label,i)=>{label.style.setProperty('--packed-y',`${44+i*24}px`);label.tabIndex=this.expanded?0:-1;});
-    if(!this.expanded)slices.forEach((slice,i)=>slice.style.setProperty('--y',`${85+i*10}px`));
+    labels.forEach((label,i)=>{label.style.setProperty('--packed-y',`${12+i*24}px`);label.tabIndex=this.expanded?0:-1;});
+    if(!this.expanded)slices.forEach((slice,i)=>slice.style.setProperty('--y',`${53+i*10}px`));
     this.el.style.setProperty('--collapse-y',`${this.positions.at(-1)}px`);
   }
   face(index,bitmap){

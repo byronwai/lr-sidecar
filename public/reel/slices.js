@@ -34,9 +34,6 @@ export function createSlices(schedule,{panelRect}){
       shown.push({index:cue.pass.index,active:true,mode:'thumbnail',lift:1,center});
     }else{
       ctx.fillStyle='#0b1120f7';ctx.fillRect(slot.x,slot.y,slot.w,slot.h);
-      ctx.strokeStyle='#7894ff';ctx.lineWidth=1.5;ctx.beginPath();
-      ctx.moveTo(slot.x+32,slot.y+38);ctx.quadraticCurveTo(slot.x+400,slot.y+5,slot.x+slot.w-24,slot.y+38);ctx.stroke();
-      text(ctx,'composite passes → encode ↗',slot.x+34,slot.y+31,mono,'#c4d4ff',slot.w-68);
       chapters.forEach((chapter,i)=>{
         const active=cue.scene==='program'&&chapter.pass.index===cue.pass.index;
         const lift=active?arrive(time,half,BEAT/2):0;

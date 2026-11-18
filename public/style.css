@@ -895,26 +895,10 @@ footer b {
 .stack-controls small {
   font-size:9px;
 }
-.beam,.stack-arc,.sweep {
+.beam,.sweep {
   display:none;
 }
 @media(min-width:601px) {
-  .stack-arc {
-    display:block;
-    position:absolute;
-    top:-10px;
-    left:0;
-    width:100%;
-    height:80px;
-    overflow:visible;
-    pointer-events:none;
-  }
-  .stack-arc path { fill:none; stroke:var(--system-text); stroke-width:1; }
-  .stack-arc text {
-    fill:var(--highlight);
-    font:10px var(--mono);
-    text-shadow:0 0 2px currentColor,0 0 9px #7894ff80;
-  }
 }
 @media(min-width:1500px) {
   .pipeline {
@@ -1216,9 +1200,6 @@ footer b {
 .stack.packed .source,.stack.packed .params { display:none; }
 .stack.packed .stack-world { display:block; left:18%; }
 .stack.packed .slice { width:110px; height:165px; pointer-events:none; }
-.stack.packed .stack-arc { display:block; position:absolute; top:0; left:0; width:100%; height:40px; pointer-events:none; }
-.stack.packed .stack-arc path { fill:none; stroke:var(--system-text); }
-.stack.packed .stack-arc text { fill:var(--highlight); font:10px var(--mono); }
 .stack-packed .stack-controls { display:none; }
 .column.stack-packed>.program-ghost { bottom:auto; height:calc(var(--packed-height,220px) + 45px); font-size:12px; line-height:1.6; }
 @media(max-width:600px) {
@@ -1389,3 +1370,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 @media(prefers-reduced-motion:reduce) {
   body[data-busy] .wave-strip.pass-pulse i { animation:none; }
 }
+
+/* Tight deck (layer separation below the default): one-line labels. */
+.stack.tight .slice-label .source { display:none; }
+.stack.tight .slice-label .params .param-line:not(:first-child) { display:none; }
+.stack.tight .slice-label .params .param-line { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
