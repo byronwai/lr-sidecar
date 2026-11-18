@@ -294,6 +294,21 @@ export class SliceStack {
     const projectedHeight=(planeWidth*Math.sin(35*Math.PI/180)+planeHeight*Math.cos(35*Math.PI/180))*Math.cos(62*Math.PI/180);
     // Budget for chips and the single caption before choosing the card scale.
     // Short, tight stacks still pack to roughly 30% on a phone.
+    // Expanded: zoom the deck out so every slice stays inside the pane, between
+    // its left edge and the label column, and clears the pane's top edge.
+    let fit=1;
+    if(this.expanded&&!mobile&&labels.length){
+      const labelLeft=labels[0].getBoundingClientRect().left-this.el.getBoundingClientRect().left;
+      const half=Math.max(30,Math.min(origin-12,labelLeft-origin-10));
+      fit=Math.min(1,half/(projectedWidth/2));
+      const clear=projectedHeight*fit/2+10-Math.min(...this.positions);
+      if(clear>0){
+        this.positions=this.positions.map(y=>y+clear);
+        labels.forEach(label=>{label.style.top=`${parseFloat(label.style.top||0)+clear}px`;});
+        height+=clear;
+      }
+    }
+    this.fit=fit;
     const fanWidth=Math.min(mobile?125:170,width*.48,Math.max(16,height*.3-78)*projectedWidth/projectedHeight);
     const scale=fanWidth/projectedWidth;
     const step=labels.length>1?Math.min(fanWidth*.48,(width-fanWidth-24)/(labels.length-1)):0;
@@ -312,7 +327,7 @@ export class SliceStack {
     slices.forEach((slice,i)=>{
       slice.style.setProperty('--x',`${this.expanded?0:start+step*i-origin}px`);
       slice.style.setProperty('--y',`${this.expanded?this.positions[i]:y}px`);
-      slice.style.setProperty('--scale',this.expanded?(mobile?.3:1):scale);
+      slice.style.setProperty('--scale',this.expanded?(mobile?.3:fit):scale);
       slice.style.zIndex=i+1;
     });
     labels.forEach((label,i)=>{

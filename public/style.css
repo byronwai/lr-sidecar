@@ -1411,3 +1411,29 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 @media (prefers-reduced-motion: reduce) {
   .stack.packed:not(.stack-moving) .slice,.stack.packed:not(.stack-moving) .slice.focused { transition:none; }
 }
+
+/* Expanded deck: springy hover and a "pull the layer out" selection.
+   Uses the same registered --lift/--part/--pop as the fan, so only those
+   animate and the expand/collapse FLIP motion is untouched. */
+.stack:not(.packed):not(.stack-moving) .slice {
+  transform:translate(-50%,-50%) translate(calc(var(--x,0px) + var(--part)),calc(var(--y) - var(--lift))) scale(calc(var(--scale,1) * var(--pop))) rotateX(62deg) rotateZ(-35deg);
+  transition:--lift .46s cubic-bezier(.34,1.56,.64,1),--part .46s cubic-bezier(.34,1.56,.64,1),--pop .46s cubic-bezier(.34,1.56,.64,1),
+    box-shadow .3s var(--ease),opacity .35s var(--ease),z-index 0s linear .4s;
+}
+.stack:not(.packed):not(.stack-moving) .slice.focused {
+  --lift:10px; --part:6px; --pop:1.03;
+  box-shadow:0 0 0 1px var(--color),0 0 18px color-mix(in srgb,var(--color) 55%,transparent);
+}
+.stack:not(.packed):not(.stack-moving) .slice.inspected {
+  --lift:16px; --part:26px; --pop:1.06;
+  box-shadow:0 0 0 2px var(--color),0 0 30px color-mix(in srgb,var(--color) 75%,transparent),0 20px 34px #000b;
+  z-index:100 !important;
+  transition:--lift .5s cubic-bezier(.34,1.56,.64,1),--part .5s cubic-bezier(.34,1.56,.64,1),--pop .5s cubic-bezier(.34,1.56,.64,1),
+    box-shadow .3s var(--ease),opacity .35s var(--ease),z-index 0s linear 0s;
+}
+.stack:not(.packed):not(.stack-moving):has(.slice.inspected) .slice:not(.inspected):not(.focused) { opacity:.5; }
+.stack:not(.packed):not(.stack-moving) .slice-label { transition:transform .46s cubic-bezier(.34,1.56,.64,1),opacity .35s var(--ease); }
+.stack:not(.packed):not(.stack-moving) .slice-label[aria-pressed=true] { transform:translateX(-6px); }
+@media (prefers-reduced-motion: reduce) {
+  .stack:not(.packed) .slice,.stack:not(.packed) .slice.inspected,.stack:not(.packed) .slice-label { transition:none; }
+}
