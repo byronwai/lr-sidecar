@@ -774,7 +774,9 @@ footer b {
   width:1px;
   height:1px;
   transform:rotateY(var(--orbit)) rotateX(var(--tilt));
-  transform-style:preserve-3d;
+  /* Flatten sibling planes so compositing follows pass z-index, even where
+     their isometric projections overlap. */
+  transform-style:flat;
 }
 .slice {
   position:absolute;
@@ -786,8 +788,8 @@ footer b {
   border:1px solid var(--color);
   border-radius:0;
   background:#04070f;
-  transform:translate(-50%,-50%) translateY(var(--y)) rotateX(62deg) rotateZ(-35deg);
-  transition:transform .4s var(--ease),opacity .3s var(--ease);
+  transform:translate(-50%,-50%) translate(var(--x,0px),var(--y)) scale(var(--scale,1)) rotateX(62deg) rotateZ(-35deg);
+  transition:opacity .3s var(--ease);
   overflow:hidden;
 }
 .slice canvas {
@@ -809,7 +811,7 @@ footer b {
   opacity:.35;
 }
 .slice:hover,.slice.focused {
-  transform:translate(-50%,-50%) translateY(calc(var(--y) - 8px)) rotateX(62deg) rotateZ(-35deg);
+  transform:translate(-50%,-50%) translate(var(--x,0px),calc(var(--y) - 8px)) scale(var(--scale,1)) rotateX(62deg) rotateZ(-35deg);
 }
 .slice-label {
   position:absolute;
@@ -1188,25 +1190,31 @@ footer b {
   }
 }
 .slice.inspected { outline:2px solid var(--color); outline-offset:4px; }
-/* A closed deck is the resting state. One disclosure owns expansion. */
-.stack { transition:height .35s var(--ease); }
+/* A closed fan is the resting state. Card transforms and pane height are
+   animated together in SliceStack, including the reverse stagger. */
+.stack { min-height:0; }
+.stack.stack-moving { overflow-x:clip; }
 .stack-toggle { position:relative; z-index:2; margin:0 0 6px; font:11px var(--mono); }
-.stack-toggle:focus-visible,.stack:focus-visible,.slice-label:focus-visible { outline:2px solid var(--highlight); outline-offset:4px; }
+.stack-toggle:focus-visible,.stack:focus-visible,.slice-label:focus-visible,.slice:focus-visible { outline:2px solid var(--highlight); outline-offset:4px; }
+.pass-chip { display:none; border:1px solid var(--color); background:var(--panel); color:var(--color); font:11px/18px var(--mono); }
+.fan-caption { display:none; position:absolute; top:var(--caption-y); left:0; right:0; margin:0; color:var(--color); font:11px/1.8 var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
 .stack.packed { min-height:0; cursor:pointer; display:block; padding:0; }
-.stack.packed .slice-label { position:absolute; top:var(--packed-y)!important; left:38%; right:0; width:auto; min-height:0; padding:0; border:0; pointer-events:none; }
-.stack.packed .slice-label strong { display:flex; width:100%; white-space:nowrap; overflow:hidden; font-size:10px; }
-.stack.packed .slice-label .pass-name { overflow:hidden; text-overflow:ellipsis; }
-.stack.packed .timing { flex:none; margin-left:auto; padding-left:4px; }
-.stack.packed .source,.stack.packed .params { display:none; }
-.stack.packed .stack-world { display:block; left:18%; }
-.stack.packed .slice { width:110px; height:165px; pointer-events:none; }
+.stack.packed .slice-label { position:absolute; top:var(--chip-y)!important; left:var(--chip-x); right:auto; width:20px; height:20px; min-height:0; margin:0; padding:0; border:0; text-align:center; }
+.stack.packed .slice-label strong,.stack.packed .source,.stack.packed .params,.stack.packed .slice-label:before { display:none; }
+.stack.packed .pass-chip { display:block; }
+.stack.stack-moving .pass-chip { display:block; position:absolute; left:0; top:0; width:20px; height:20px; }
+.stack.stack-moving .slice-label>strong,.stack.stack-moving .slice-label>.source,.stack.stack-moving .slice-label>.params { display:block; width:var(--row-width); max-width:none; }
+.stack.stack-moving.tight .slice-label>.source { display:none; }
+.stack.packed .slice-label:hover .pass-chip,.stack.packed .slice-label:focus-visible .pass-chip { background:var(--color); color:var(--bg); }
+.stack.packed .fan-caption { display:block; }
+.stack.packed .slice:hover,.stack.packed .slice.focused,.stack.stack-moving .slice { transform:translate(-50%,-50%) translate(var(--x,0px),var(--y)) scale(var(--scale,1)) rotateX(62deg) rotateZ(-35deg); }
 .stack-packed .stack-controls { display:none; }
 .column.stack-packed>.program-ghost { bottom:auto; height:calc(var(--packed-height,220px) + 45px); font-size:12px; line-height:1.6; }
 @media(max-width:600px) {
   .passes-column:not(.stack-packed) .stack-controls { display:flex; }
-  .stack.packed .slice { width:72px; height:108px; }
-  .stack.packed .stack-world { left:24%; }
-  .stack.packed .slice-label { left:45%; }
+  .stack { flex-direction:column-reverse; }
+  .stack .stack-world { display:block; left:15%; }
+  .stack:not(.packed) .slice-label { margin-left:34%; width:66%; }
 }
 @media(prefers-reduced-motion:reduce) {
   .stack,.stack .slice,.stack .slice-label { transition:none!important; }

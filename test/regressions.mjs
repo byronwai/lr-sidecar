@@ -1,4 +1,42 @@
 import assert from 'node:assert/strict';
+export async function fanRegressionChecks(evaluate,call){
+  const reduced=await evaluate("matchMedia('(prefers-reduced-motion:reduce)').matches");
+  const media=value=>call('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value}]});
+  const settle=()=>evaluate("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
+  const toggle=()=>evaluate("document.querySelector('.stack-toggle').click()");
+  const rects="[...document.querySelectorAll('.slice')].map(e=>{const r=e.getBoundingClientRect(),b=document.querySelector('#stack').getBoundingClientRect();return [r.x-b.x,r.y-b.y,r.width,r.height]})";
+  await media('reduce');
+  await evaluate("document.querySelector('#stack').getAnimations({subtree:true}).forEach(a=>a.finish())");await settle();
+  if(await evaluate("document.querySelector('.stack-toggle').getAttribute('aria-expanded')==='false'"))await toggle();
+  await settle();
+  const expanded=await evaluate(rects);
+  await toggle();await settle();
+  const packed=await evaluate(rects);
+  assert.ok(packed.every((r,i)=>!i||r[0]>packed[i-1][0]),'Fan passes run left to right');
+  const z=await evaluate("[...document.querySelectorAll('.slice')].map(e=>Number(getComputedStyle(e).zIndex))");
+  assert.ok(z.every((n,i)=>!i||n>z[i-1]),'Later passes are frontmost');
+  assert.equal(await evaluate("document.documentElement.scrollWidth<=innerWidth"),true);
+  await media('no-preference');await toggle();
+  const travel=await evaluate("document.querySelector('#stack').getAnimations({subtree:true}).filter(a=>a.effect.target.matches('.slice')).map(a=>({delay:a.effect.getTiming().delay,frames:a.effect.getKeyframes().map(k=>k.transform)}))");
+  assert.equal(travel.length,expanded.length);
+  assert.ok(travel.every((a,i)=>a.frames[0]!==a.frames[1]&&(!i||a.delay>travel[i-1].delay)),'Each pass travels with a bottom-up stagger');
+  await toggle();
+  assert.equal(await evaluate("document.querySelector('.stack-toggle').getAttribute('aria-expanded')"),'true','Repeated toggles ignored during travel');
+  await evaluate("Promise.all(document.querySelector('#stack').getAnimations({subtree:true}).map(a=>a.finished))");await settle();
+  const final=await evaluate(rects);
+  const positionError=Math.max(...final.flatMap((r,i)=>r.map((v,k)=>Math.abs(v-expanded[i][k]))));
+  assert.ok(positionError<=1,'Travel finishes at the static expanded positions');
+  await toggle();
+  const reverse=await evaluate("document.querySelector('#stack').getAnimations({subtree:true}).filter(a=>a.effect.target.matches('.slice')).map(a=>a.effect.getTiming().delay)");
+  assert.ok(reverse.every((d,i)=>!i||d<reverse[i-1]),'Collapse stagger runs top-down');
+  await evaluate("Promise.all(document.querySelector('#stack').getAnimations({subtree:true}).map(a=>a.finished))");await settle();
+  await media('reduce');await toggle();
+  assert.equal(await evaluate("document.querySelector('#stack').getAnimations({subtree:true}).length"),0,'Reduced motion has no travel');
+  const instant=await evaluate(rects);
+  assert.ok(instant.every((r,i)=>r.every((v,k)=>Math.abs(v-expanded[i][k])<=1)),'Reduced motion immediately reaches the same endpoint');
+  await toggle();await media(reduced?'reduce':'no-preference');
+  return {passes:packed.length,positionError,order:true,reducedMotion:true};
+}
 export async function regressionChecks(evaluate,call){
   const slider=await evaluate(`(()=>{const range=document.querySelector('#compare');return [10,35,50,80].map(value=>{
     range.value=value;range.dispatchEvent(new Event('input',{bubbles:true}));
@@ -8,12 +46,16 @@ export async function regressionChecks(evaluate,call){
     return {value,edge,divider:center('.compare-divider'),handle:center('.compare-divider span')};
   })})()`);
   for(const r of slider){assert.ok(Math.abs(r.edge-r.divider)<=1);assert.ok(Math.abs(r.edge-r.handle)<=1);}
+  const fan=await fanRegressionChecks(evaluate,call);
   await evaluate("(()=>{const b=document.querySelector('.stack-toggle');if(b.getAttribute('aria-expanded')==='true')b.click();document.querySelector('#compile').focus()})()");
   const key=async(key,code,n,text)=>{await call('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:n,...(text?{text}:{})});await call('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:n});};
   await key('Tab','Tab',9);
   assert.equal(await evaluate("document.activeElement.matches('.stack-toggle')"),true);
   await key('Enter','Enter',13,'\r');
   assert.equal(await evaluate("document.querySelector('.stack-toggle').getAttribute('aria-expanded')"),'true');
+  await key('Escape','Escape',27);
+  assert.equal(await evaluate("document.activeElement.matches('.stack-toggle')&&document.activeElement.getAttribute('aria-expanded')==='false'"),true,'Escape works while the disclosure control has focus');
+  await key('Enter','Enter',13,'\r');
   await key('Tab','Tab',9);
   assert.equal(await evaluate("document.activeElement.id"),'stack');
   await key('Tab','Tab',9);await key('Enter','Enter',13,'\r');
@@ -28,10 +70,14 @@ export async function regressionChecks(evaluate,call){
   await key(' ','Space',32,' ');
   assert.equal(await evaluate("document.querySelector('.stack-toggle').getAttribute('aria-expanded')"),'true');
   await key('Escape','Escape',27);
-  await evaluate("document.querySelector('.slice').click()");
-  assert.equal(await evaluate("document.querySelector('.stack-toggle').getAttribute('aria-expanded')==='true'&&document.querySelector('#output-name').textContent==='Compiled framebuffer'"),true,'First collapsed slice click expands without inspecting');
+  await evaluate("document.querySelectorAll('.slice')[1].click()");
+  const inspectEnd=Date.now()+10000;
+  while(!await evaluate("document.querySelector('#output-name').textContent.startsWith('Pass 1')")){
+    assert.ok(Date.now()<inspectEnd,'Collapsed card expands and then inspects its own pass');await new Promise(r=>setTimeout(r,50));
+  }
   await evaluate("document.querySelector('#stack').click()");
   assert.equal(await evaluate("document.querySelector('.stack-toggle').getAttribute('aria-expanded')"),'false','Empty area packs the stack');
+  await evaluate("document.querySelector('#show-final').click()");
   const reel=await evaluate(`(async()=>{
     const {canvas,frame}=await lrcReel.makeRenderer(),p=lrcReel.prepare().timeline;
     const first=frame(0),rect=first.photoRect;
@@ -185,5 +231,5 @@ export async function regressionChecks(evaluate,call){
   assert.deepEqual(tint.outside,tint.before,'Zero mask leaves pixels untouched');
   assert.ok(tint.after[2]>tint.after[0]+10,'Local Color makes blue pixels');
   assert.ok(tint.relativeLuminanceError<.01,'Linear luminance survives gamut fitting');
-  console.log('REGRESSIONS',JSON.stringify({slider,reel,panelChoices,encodedLoop,overlay,colours,tint}));return {slider,reel,panelChoices,encodedLoop,overlay,colours,tint,keyboardInspection:true};
+  console.log('REGRESSIONS',JSON.stringify({slider,fan,reel,panelChoices,encodedLoop,overlay,colours,tint}));return {slider,fan,reel,panelChoices,encodedLoop,overlay,colours,tint,keyboardInspection:true};
 }

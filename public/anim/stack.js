@@ -16,6 +16,8 @@ export class SliceStack {
     this.drag=null;
     this.ignoreClick=false;
     this.expanded=false;
+    this.animations=[];
+    this.captionIndex=0;
     element.tabIndex=0;
     element.setAttribute('role','group');
     element.setAttribute('aria-label','Pass stack. Enter or Space to expand or collapse. Escape to collapse.');
@@ -25,8 +27,11 @@ export class SliceStack {
     this.toggle.setAttribute('aria-controls',element.id);
     element.before(this.toggle);
     this.toggle.addEventListener('click',()=>this.setExpanded(!this.expanded));
+    this.toggle.addEventListener('keydown',event=>{
+      if(event.key==='Escape'){event.preventDefault();this.setExpanded(false);}
+    });
     element.addEventListener('click',e=>{
-      if(this.ignoreClick)return;
+      if(this.ignoreClick||this.animating)return;
       if(!this.expanded)this.setExpanded(true);
       else if(!e.target.closest('button'))this.setExpanded(false);
     });
@@ -40,7 +45,7 @@ export class SliceStack {
     });
     this.setExpanded(false);
     element.addEventListener('pointerdown',e=>{
-      if(!this.expanded||e.button!==0||e.target.closest('.slice-label'))return;
+      if(!this.expanded||this.animating||e.button!==0||e.target.closest('.slice-label'))return;
       this.drag={
         x:e.clientX,
         y:e.clientY
@@ -68,18 +73,22 @@ export class SliceStack {
     this.sideColumns=[...element.closest('.pipeline').querySelectorAll('.input-column,.output-column')];
     this.sideColumns.forEach(column=>this.resizeObserver.observe(column));
     document.fonts?.ready.then(()=>this.scheduleLayout());
+    this.reduced.addEventListener('change',()=>{
+      if(this.reduced.matches)this.animations.forEach(animation=>animation.finish());
+    });
   }
   setGroups(groups){
+    this.cancelMotion();
     this.groups=groups;
+    this.captionIndex=0;
     this.el.style.setProperty('--count',groups.length);
-    this.el.innerHTML=`<div class="stack-world"></div><div class="beam"></div>`;
+    this.el.innerHTML=`<div class="stack-world"></div><div class="beam"></div><p class="fan-caption" aria-live="polite" aria-atomic="true"></p>`;
     const world=this.el.querySelector('.stack-world');
     groups.forEach((g,i)=>{
       const style=`--i:${i+(6-groups.length)/2};--color:${g.color}`,
       plane=document.createElement('button');
       plane.className=`slice placeholder ${g.kind==='parametric'?'parametric':''}`;
       plane.tabIndex=-1;
-      plane.setAttribute('aria-hidden','true');
       plane.style.cssText=style;
       plane.setAttribute('aria-label',`Inspect pass ${i}: ${g.name}`);
       plane.innerHTML='<canvas width="195" height="283"></canvas>';
@@ -93,9 +102,9 @@ export class SliceStack {
       label.setAttribute('aria-pressed','false');
       label.style.cssText=style;
       label.title=[g.name,...g.parameters].join('\n');
-      label.innerHTML=`<strong><span class="pass-name">pass ${i} · ${escape(g.name)}</span><span class="timing"></span></strong><span class="source">${escape(g.source)}</span><span class="params">${g.parameters.map(line=>`<span class="param-line">${escape(line)}</span>`).join('')}</span>`;
+      label.innerHTML=`<span class="pass-chip" aria-hidden="true">${i}</span><strong><span class="pass-name">pass ${i} · ${escape(g.name)}</span><span class="timing"></span></strong><span class="source">${escape(g.source)}</span><span class="params">${g.parameters.map(line=>`<span class="param-line">${escape(line)}</span>`).join('')}</span>`;
       this.el.append(label);
-      label.addEventListener('focus',()=>plane.classList.add('focused'));
+      label.addEventListener('focus',()=>{plane.classList.add('focused');this.caption(i);});
       label.addEventListener('blur',()=>plane.classList.remove('focused'));
       label.addEventListener('keydown',event=>{
         if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
@@ -106,6 +115,7 @@ export class SliceStack {
       });
       for(const node of [plane,label]){
         node.addEventListener('pointerenter',()=>{
+          this.caption(i);
           this.el.classList.add('hovering');
           plane.classList.add('focused');
           label.classList.add('focused');
@@ -116,28 +126,104 @@ export class SliceStack {
           label.classList.remove('focused');
         });
         node.addEventListener('click',event=>{
-          if(this.expanded&&!this.ignoreClick){event.stopPropagation();this.onSelect(i);}
+          event.stopPropagation();
+          if(this.ignoreClick||this.animating)return;
+          this.caption(i);
+          if(this.expanded)this.onSelect(i);
+          else this.setExpanded(true,i);
         });
       }
-      plane.addEventListener('focus',()=>plane.classList.add('focused'));
+      plane.addEventListener('focus',()=>{plane.classList.add('focused');this.caption(i);});
       plane.addEventListener('blur',()=>plane.classList.remove('focused'));
     });
     this.layout();
+    this.caption(0);
+  }
+  caption(index){
+    this.captionIndex=index;
+    const group=this.groups[index],caption=this.el.querySelector('.fan-caption');
+    if(!group||!caption)return;
+    const timing=this.el.querySelectorAll('.timing')[index]?.textContent;
+    caption.textContent=`pass ${index} · ${group.name}${timing?` · ${timing}`:''}`;
+    caption.style.setProperty('--color',group.color);
   }
   select(index){
+    if(index!==null)this.caption(index);
     this.el.querySelectorAll('.slice-label').forEach((label,i)=>label.setAttribute('aria-pressed',String(i===index)));
     this.el.querySelectorAll('.slice').forEach((plane,i)=>plane.classList.toggle('inspected',i===index));
   }
-  setExpanded(expanded){
+  async setExpanded(expanded,inspectIndex){
+    if(this.animating||expanded===this.expanded&&this.el.classList.contains('packed')===!expanded)return;
+    const slices=[...this.el.querySelectorAll('.slice')];
+    const labels=[...this.el.querySelectorAll('.slice-label')];
+    const before=slices.map(slice=>getComputedStyle(slice).transform);
+    const labelBefore=labels.map(label=>label.getBoundingClientRect());
+    const height=this.el.getBoundingClientRect().height;
+    const column=this.el.closest('.passes-column');
+    const columnHeight=column.getBoundingClientRect().height;
+    const world=this.el.querySelector('.stack-world');
+    const orbit=world&&getComputedStyle(world).transform;
     this.ignoreClick=false;
     this.drag=null;
+    this.el.querySelectorAll('.focused').forEach(node=>node.classList.remove('focused'));
     this.expanded=expanded;
+    if(!expanded){this.el.style.setProperty('--orbit','0deg');this.el.style.setProperty('--tilt','0deg');}
     this.el.classList.toggle('packed',!expanded);
     this.el.closest('.passes-column').classList.toggle('stack-packed',!expanded);
     this.toggle.textContent=expanded?'Collapse passes ↑':'Expand passes ↓';
     this.toggle.setAttribute('aria-expanded',String(expanded));
-    this.el.querySelectorAll('.slice-label').forEach(label=>label.tabIndex=expanded?0:-1);
-    this.scheduleLayout();
+    // Layout both endpoints synchronously. The matrices include the fan's scale
+    // and isometric projection, so the same canvas travels without a crossfade.
+    this.layout();
+    this.el.nextElementSibling.inert=!expanded;
+    if(!this.reduced.matches&&slices.length){
+      this.animating=true;
+      this.el.classList.add('stack-moving');
+      const easing=getComputedStyle(this.el).getPropertyValue('--ease').trim();
+      const stagger=Math.min(30,210/Math.max(1,slices.length-1));
+      const duration=560-stagger*(slices.length-1);
+      const animate=(node,frames,delay=0,ms=duration)=>{
+        const animation=node.animate(frames,{duration:ms,delay,easing,fill:'both'});
+        this.animations.push(animation);
+      };
+      slices.forEach((slice,i)=>{
+        const delay=(expanded?i:slices.length-1-i)*stagger;
+        animate(slice,[{transform:before[i]},{transform:getComputedStyle(slice).transform}],delay);
+        const to=labels[i].getBoundingClientRect(),from=labelBefore[i];
+        animate(labels[i],[{transform:`translate(${from.x-to.x}px,${from.y-to.y}px)`},{transform:'none'}],delay);
+        // Keep both label treatments during travel: the chip hands over to
+        // the row on expansion, and the row hands back to the chip on return.
+        for(const child of labels[i].children){
+          const chip=child.classList.contains('pass-chip');
+          const fromOpacity=chip===expanded?1:0;
+          animate(child,[{opacity:fromOpacity},{opacity:1-fromOpacity}],delay);
+        }
+      });
+      // Account for the disclosure's controls appearing/disappearing, so the
+      // pane's outer height starts at exactly its previous value.
+      const controlsDelta=column.getBoundingClientRect().height-columnHeight-(this.el.getBoundingClientRect().height-height);
+      // Grow with the bottom card, and only shrink when that card returns.
+      // Otherwise the first card can outrun the pane and cross its controls.
+      animate(this.el,[{height:`${Math.max(0,height-controlsDelta)}px`},{height:this.el.style.height}],expanded?0:stagger*(slices.length-1));
+      animate(world,[{transform:orbit},{transform:getComputedStyle(world).transform}],0,560);
+      if(!expanded)animate(this.el.querySelector('.fan-caption'),[{opacity:0},{opacity:1}],410,150);
+      const motion=this.animations;
+      await Promise.all(motion.map(animation=>animation.finished.catch(()=>{})));
+      // A new file can replace the deck before its motion completes.
+      if(this.animations!==motion)return;
+      this.cancelMotion();
+      this.layout();
+    }
+    if(inspectIndex!==undefined){
+      labels[inspectIndex]?.focus({preventScroll:true});
+      this.onSelect(inspectIndex);
+    }
+  }
+  cancelMotion(){
+    this.animations.forEach(animation=>animation.cancel());
+    this.animations=[];
+    this.animating=false;
+    this.el.classList.remove('stack-moving');
   }
   available(enabled){
     this.el.querySelectorAll('.slice,.slice-label').forEach(button=>button.disabled=!enabled);
@@ -152,23 +238,21 @@ export class SliceStack {
     this.layoutFrame=requestAnimationFrame(()=>this.layout());
   }
   layout(){
+    if(this.animating)return;
     const labels=[...this.el.querySelectorAll('.slice-label')];
     const slices=[...this.el.querySelectorAll('.slice')];
     if(!labels.length)return;
     this.el.classList.remove('packed');
     // Below the default spread the deck tightens; labels condense to one line
     // so rows can close up without text colliding (full params on hover/inspect).
-    this.el.classList.toggle('tight',this.expanded&&this.separation<22);
+    this.el.classList.toggle('tight',this.separation<22);
     const desktop=matchMedia('(min-width: 821px)').matches;
     if(matchMedia('(max-width: 600px)').matches){
       this.el.style.height='auto';
       const expandedHeight=this.el.getBoundingClientRect().height;
-      this.el.classList.toggle('packed',!this.expanded);
-      this.el.style.height=`${Math.ceil(expandedHeight*(this.expanded?1:.3))}px`;
-      this.el.closest('.passes-column').style.setProperty('--packed-height',`${Math.ceil(expandedHeight*.3)}px`);
-      this.el.style.setProperty('--expanded-height',`${expandedHeight}px`);
-      labels.forEach((label,i)=>{label.style.setProperty('--packed-y',`${12+i*24}px`);label.tabIndex=this.expanded?0:-1;});
-      slices.forEach((slice,i)=>slice.style.setProperty('--y',`${48+i*10}px`));
+      // Keep the narrow-screen text rows. Each card docks beside its own row.
+      this.positions=labels.map(label=>label.offsetTop+12);
+      this.finishLayout(expandedHeight,labels,slices);
       return;
     }
     let top=40;
@@ -194,15 +278,48 @@ export class SliceStack {
       this.positions[i]=center;
       if(i>0)top+=Math.max(heights[i]+6,rowHeights[i-1]+spacing);
     }
-    const height=Math.ceil(Math.max(this.separation>=22?available:0,top+lastRow));
-    const packedHeight=Math.ceil(Math.max(labels.length*24+70,height*.3));
-    this.el.classList.toggle('packed',!this.expanded);
-    this.el.style.height=`${this.expanded?height:packedHeight}px`;
-    this.el.closest('.passes-column').style.setProperty('--packed-height',`${packedHeight}px`);
-    this.el.style.setProperty('--expanded-height',`${height}px`);
-    labels.forEach((label,i)=>{label.style.setProperty('--packed-y',`${12+i*24}px`);label.tabIndex=this.expanded?0:-1;});
-    if(!this.expanded)slices.forEach((slice,i)=>slice.style.setProperty('--y',`${53+i*10}px`));
+    const minimum=matchMedia('(max-width:1100px)').matches?440:470;
+    const height=Math.ceil(Math.max(minimum,this.separation>=22?available:0,top+lastRow));
+    this.finishLayout(height,labels,slices);
     this.el.style.setProperty('--collapse-y',`${this.positions.at(-1)}px`);
+  }
+  finishLayout(height,labels,slices){
+    const width=this.el.clientWidth;
+    const mobile=matchMedia('(max-width:600px)').matches;
+    const world=this.el.querySelector('.stack-world');
+    const origin=world.offsetLeft;
+    labels.forEach(label=>label.style.setProperty('--row-width',`${label.getBoundingClientRect().width}px`));
+    const planeWidth=slices[0].offsetWidth,planeHeight=slices[0].offsetHeight;
+    const projectedWidth=planeWidth*Math.cos(35*Math.PI/180)+planeHeight*Math.sin(35*Math.PI/180);
+    const projectedHeight=(planeWidth*Math.sin(35*Math.PI/180)+planeHeight*Math.cos(35*Math.PI/180))*Math.cos(62*Math.PI/180);
+    // Budget for chips and the single caption before choosing the card scale.
+    // Short, tight stacks still pack to roughly 30% on a phone.
+    const fanWidth=Math.min(mobile?125:170,width*.48,Math.max(16,height*.3-78)*projectedWidth/projectedHeight);
+    const scale=fanWidth/projectedWidth;
+    const step=labels.length>1?Math.min(fanWidth*.48,(width-fanWidth-24)/(labels.length-1)):0;
+    const start=(width-fanWidth-step*(labels.length-1))/2+fanWidth/2;
+    const lanes=step>0?Math.ceil(22/step):1;
+    const fanHeight=projectedHeight*scale;
+    const contentHeight=fanHeight+lanes*24+54;
+    const packedHeight=Math.ceil(Math.max(height*.3,contentHeight));
+    const y=Math.max(fanHeight/2+14,(packedHeight-lanes*24-34)/2);
+    const chipY=y+fanHeight/2+10;
+    this.el.classList.toggle('packed',!this.expanded);
+    this.el.style.height=`${this.expanded?Math.ceil(height):packedHeight}px`;
+    this.el.style.setProperty('--expanded-height',`${height}px`);
+    this.el.closest('.passes-column').style.setProperty('--packed-height',`${packedHeight}px`);
+    this.el.style.setProperty('--caption-y',`${chipY+lanes*24+8}px`);
+    slices.forEach((slice,i)=>{
+      slice.style.setProperty('--x',`${this.expanded?0:start+step*i-origin}px`);
+      slice.style.setProperty('--y',`${this.expanded?this.positions[i]:y}px`);
+      slice.style.setProperty('--scale',this.expanded?(mobile?.3:1):scale);
+      slice.style.zIndex=i+1;
+    });
+    labels.forEach((label,i)=>{
+      label.style.setProperty('--chip-x',`${start+step*i-10}px`);
+      label.style.setProperty('--chip-y',`${chipY+(i%lanes)*24}px`);
+      label.tabIndex=0;
+    });
   }
   face(index,bitmap){
     const plane=this.el.querySelectorAll('.slice')[index];
@@ -246,6 +363,7 @@ export class SliceStack {
   done(index,ms){
     const label=this.el.querySelectorAll('.slice-label')[index];
     if(label)label.querySelector('.timing').textContent=`${ms.toFixed(0)} ms`;
+    if(index===this.captionIndex)this.caption(index);
   }
   async finish(){
     this.el.classList.remove('running');

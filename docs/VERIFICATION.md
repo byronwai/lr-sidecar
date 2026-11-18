@@ -73,3 +73,11 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 - How Instagram transcodes the uploaded Reel, and playback on physical phones.
 - The `MediaRecorder` fallback in browsers without WebCodecs H.264 (Firefox and Safari Reel export).
 - Native file-dialog keyboard navigation, which is browser chrome outside the page.
+
+## Slice fan disclosure
+
+- Both sample edits were checked at 1440, 768 and 375 px. Packed height is **30.00–30.12%** of expanded height. Passes run left to right from 0, and the last card wins the frontmost hit test. A 24-pass phone fixture also fits, with no chip collisions.
+- All six endpoint pairs have **zero horizontal overflow and zero label collisions**. Cards finish within **0.001 px** of their static expanded and packed positions. Adjacent panes move **0 px** across the eight sampled expansion frames, and the disclosure starts with **0 px** height jump.
+- Travel lasts **560 ms**, with a 30 ms pass stagger, reversed on collapse. Phone cards dock beside bottom-up text rows. Twelve endpoint screenshots and both eight-frame filmstrips were saved at 0, 15, 30, 45, 60, 75, 90 and 100% of travel.
+- Tab reaches the disclosure; Enter expands and Escape collapses with visible focus. A pointer click on an exposed fan card inspects that pass after travel ends. Repeated toggles during travel are ignored. Reduced motion reaches the same endpoints immediately, with no travel animations.
+- Selftest and browser integration pass, including fan order, final positions, reverse stagger, queued inspection and reduced-motion regressions.
