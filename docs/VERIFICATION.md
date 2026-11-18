@@ -26,6 +26,14 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 - The first and last frames differ by 2.6/255 on average, so the loop is seamless.
 - Bitrate is low because held frames are static. The target was 12–16 Mbps, but the encoder isn't forced to waste bits on frames that don't change.
 
+## Round 5: packed passes, shared Reel slot, local Color
+
+- The page stack starts packed. Measured height is **30.02%** of expanded height at 1440 px and **30.02%** at 375 px; neither layout overflows horizontally. Click/tap and Enter/Space expand, Escape and the collapse control pack it; reduced motion switches immediately. Parameters and the separation slider show when expanded.
+- The portrait sample and street sample show their mini stack in rewind and every chapter program beat. After half a beat the slice becomes a roughly 64 px panel-header thumbnail, retained through answer and hold. All 630 audited frames keep the motif inside the approved panel slot. Photo geometry remains fixed and held photo pixels remain unchanged outside that slot.
+- Landscape sample local Color is applied in linear light with luminance-preserving gamut fitting. Measured sky HSV hue moves **236.82° → 229.43°**, toward the 230° swatch. Mean masked RGB error against the Lightroom export improves **28.21 → 26.47/255**; the export still differs visibly.
+- Titles name colour from measurements inside each mask. A colour family is named when the hue clearly moves toward the mask's dominant OKLCh hue, or when the mean hue rotates by more than 15°, in which case the family is the direction of the OKLab colour change. Otherwise titles fall back to warmer, cooler, darker or lift. Clothes, Hair and Skin are named separately. Across four sample edits, the covers were "Paint the background red" (portrait: background hue +32°, change direction ≈ 41°), "One frame. Many edits." (twice) and "A deeper background".
+- Four sample tables, title changes and artifact names are in the round 5 results. Contact sheets await seeked before every draw. Selftest, browser integration, all eight hue families, sub-part names, local tint luminance and mask isolation pass.
+
 ## Page
 
 - After load, compile and Reel export, there are **no requests to other origins**. Fonts and decoders are served locally.

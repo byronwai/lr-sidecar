@@ -197,7 +197,17 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
   const final = reference || compiled;
   // One geometry for every source, mask, wipe and frame, for the entire Reel.
   const rect = photoRect(original);
-  const slices = createSlices(schedule);
+  // Keep the cover geometry and the approved panel slot fixed for the export.
+  const coverLines = headlineLayout(ctx, timeline.coverTitle);
+  const baseline = 300 + Math.round(coverLines[0].size * 0.73);
+  const step = Math.round(coverLines[0].size * DISPLAY.leading);
+  const titleBottom = Math.max(382, ...coverLines.map((line, i) => {
+    ctx.font = line.font;
+    return baseline + i * step + ctx.measureText(line.text).actualBoundingBoxDescent + 12;
+  }));
+  const titleRect = { x: 60, y: 250, w: 900, h: titleBottom - 250 };
+  const panelRect = { ...PANEL };
+  const slices = createSlices(schedule, { panelRect });
   const overlays = new Map();
   for (const cue of schedule.filter(cue => cue.scene === 'program')) {
     overlays.set(cue.pass.index, maskOverlay(cue.pass.mask, cue.pass.color, cue.color, rect));
@@ -224,9 +234,10 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
       surface.font = font;
       surface.fillStyle = color;
       const bounds = surface.measureText(text);
-      const w = Math.min(max, bounds.width);
-      metrics.text.push({ text, left: x, right: x + w, top: baseline - bounds.actualBoundingBoxAscent,
-        bottom: baseline + bounds.actualBoundingBoxDescent, font });
+      const w = Math.min(max, bounds.width), transform = surface.getTransform();
+      metrics.text.push({ text, left: transform.a * x + transform.e, right: transform.a * (x + w) + transform.e,
+        top: transform.d * (baseline - bounds.actualBoundingBoxAscent) + transform.f,
+        bottom: transform.d * (baseline + bounds.actualBoundingBoxDescent) + transform.f, font });
       surface.fillText(text, x, baseline, max);
     };
 
@@ -258,8 +269,8 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         title = cue.rows.length ? 'Set the base exposure' : 'Straight out of camera';
         topic = 'xmp · base settings';
         rows = cue.rows;
-        typing = progress;
-        shortPanel = !rows.length;
+        typing = arrive(t,cue.t1,BEAT/2);
+        shortPanel = !rows.length || since < BEAT/2;
         break;
       case 'program':
       case 'answer':
@@ -270,7 +281,8 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         title = cue.title;
         topic = 'xmp · ' + cue.chip;
         rows = cue.rows;
-        typing = cue.scene === 'program' ? arrive(t, cue.t1) : 1;
+        typing = cue.scene === 'program' ? arrive(t, cue.t1, BEAT/2) : 1;
+        shortPanel = cue.scene === 'program' && since < BEAT/2;
         break;
       case 'payoff': {
         before = original;
@@ -309,7 +321,13 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
       ctx.globalAlpha = 1;
     }
     brackets(ctx, rect.x, rect.y, rect.w, rect.h, '#a4b9d1', 22);
-    metrics.slices = slices.draw(ctx, cue, t, arrive, setText);
+    const drawSlices=()=>{
+      metrics.slices=slices.draw(ctx,cue,t,arrive,setText);
+      metrics.sliceBox=metrics.slices.length?slices.layout.placement:null;
+      return metrics;
+    };
+    metrics.titleRect = titleRect;
+    metrics.panelRect = panelRect;
 
     // Title scrim and TUI post effects are composited as separate chrome.
     const cover = cue.scene === 'hook' || cue.scene === 'loop';
@@ -339,7 +357,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     } else setText(ctx, title, 72, 366, PASS_TITLE, INK);
 
     // A program panel with nothing to type is just a box over the photo: skip it.
-    if (shortPanel) return metrics;
+    if (shortPanel) return drawSlices();
 
     metrics.panelDrawn = true;
     const { x, y, w } = PANEL;
@@ -352,7 +370,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     brackets(tui, x, y, w, h, accent);
     tui.fillStyle = '#0b1120';
     tui.fillRect(x + 15, y - 20, 580, 40);
-    setText(tui, wrap('/ ' + topic)[0], x + 26, y + 9, CHIP, accent);
+    setText(tui, wrap('/ ' + topic)[0], x + 26, y + 9, CHIP, accent, w-145);
     const allRows = rows.flatMap(row => wrap(rowText(row, typing)));
     const pages = Math.ceil(allRows.length / 6);
     const page = cue.scene === 'hold' ? Math.min(pages - 1, 1 + Math.floor(since / BEAT)) : 0;
@@ -398,7 +416,8 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     ctx.globalAlpha = level('program');
     ctx.drawImage(terminal, x - 5, y - 28, w + 10, h + 33, x - 5, y - 28, w + 10, h + 33);
     ctx.globalAlpha = 1;
-    return metrics;
+    return drawSlices();
   }
-  return { frame, maskCoverage: [...overlays].map(([index, entry]) => ({ index, coverage: entry?.coverage ?? null, overlay: !!entry?.canvas })) };
+  return { frame, sliceLayout: slices.layout,
+    maskCoverage: [...overlays].map(([index, entry]) => ({ index, coverage: entry?.coverage ?? null, overlay: !!entry?.canvas })) };
 }

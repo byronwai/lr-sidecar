@@ -15,8 +15,32 @@ export class SliceStack {
     this.positions=[];
     this.drag=null;
     this.ignoreClick=false;
+    this.expanded=false;
+    element.tabIndex=0;
+    element.setAttribute('role','group');
+    element.setAttribute('aria-label','Pass stack. Enter or Space to expand or collapse. Escape to collapse.');
+    this.toggle=document.createElement('button');
+    this.toggle.type='button';
+    this.toggle.className='stack-toggle';
+    this.toggle.setAttribute('aria-controls',element.id);
+    element.before(this.toggle);
+    this.toggle.addEventListener('click',()=>this.setExpanded(!this.expanded));
+    element.addEventListener('click',e=>{
+      if(this.ignoreClick)return;
+      if(!this.expanded)this.setExpanded(true);
+      else if(!e.target.closest('button'))this.setExpanded(false);
+    });
+    element.addEventListener('keydown',e=>{
+      if(e.target===element&&['Enter',' '].includes(e.key)){
+        e.preventDefault();this.setExpanded(!this.expanded);
+      }
+      if(e.key==='Escape'){
+        e.preventDefault();this.setExpanded(false);this.toggle.focus();
+      }
+    });
+    this.setExpanded(false);
     element.addEventListener('pointerdown',e=>{
-      if(e.button!==0||e.target.closest('.slice-label'))return;
+      if(!this.expanded||e.button!==0||e.target.closest('.slice-label'))return;
       this.drag={
         x:e.clientX,
         y:e.clientY
@@ -69,7 +93,7 @@ export class SliceStack {
       label.setAttribute('aria-pressed','false');
       label.style.cssText=style;
       label.title=[g.name,...g.parameters].join('\n');
-      label.innerHTML=`<strong>pass ${i} · ${escape(g.name)}<span class="timing"></span></strong><span class="source">${escape(g.source)}</span><span class="params">${g.parameters.map(line=>`<span class="param-line">${escape(line)}</span>`).join('')}</span>`;
+      label.innerHTML=`<strong><span class="pass-name">pass ${i} · ${escape(g.name)}</span><span class="timing"></span></strong><span class="source">${escape(g.source)}</span><span class="params">${g.parameters.map(line=>`<span class="param-line">${escape(line)}</span>`).join('')}</span>`;
       this.el.append(label);
       label.addEventListener('focus',()=>plane.classList.add('focused'));
       label.addEventListener('blur',()=>plane.classList.remove('focused'));
@@ -91,8 +115,8 @@ export class SliceStack {
           plane.classList.remove('focused');
           label.classList.remove('focused');
         });
-        node.addEventListener('click',()=>{
-          if(!this.ignoreClick)this.onSelect(i);
+        node.addEventListener('click',event=>{
+          if(this.expanded&&!this.ignoreClick){event.stopPropagation();this.onSelect(i);}
         });
       }
       plane.addEventListener('focus',()=>plane.classList.add('focused'));
@@ -103,6 +127,17 @@ export class SliceStack {
   select(index){
     this.el.querySelectorAll('.slice-label').forEach((label,i)=>label.setAttribute('aria-pressed',String(i===index)));
     this.el.querySelectorAll('.slice').forEach((plane,i)=>plane.classList.toggle('inspected',i===index));
+  }
+  setExpanded(expanded){
+    this.ignoreClick=false;
+    this.drag=null;
+    this.expanded=expanded;
+    this.el.classList.toggle('packed',!expanded);
+    this.el.closest('.passes-column').classList.toggle('stack-packed',!expanded);
+    this.toggle.textContent=expanded?'Collapse passes ↑':'Expand passes ↓';
+    this.toggle.setAttribute('aria-expanded',String(expanded));
+    this.el.querySelectorAll('.slice-label').forEach(label=>label.tabIndex=expanded?0:-1);
+    this.scheduleLayout();
   }
   available(enabled){
     this.el.querySelectorAll('.slice,.slice-label').forEach(button=>button.disabled=!enabled);
@@ -120,9 +155,17 @@ export class SliceStack {
     const labels=[...this.el.querySelectorAll('.slice-label')];
     const slices=[...this.el.querySelectorAll('.slice')];
     if(!labels.length)return;
+    this.el.classList.remove('packed');
     const desktop=matchMedia('(min-width: 821px)').matches;
     if(matchMedia('(max-width: 600px)').matches){
       this.el.style.height='auto';
+      const expandedHeight=this.el.getBoundingClientRect().height;
+      this.el.classList.toggle('packed',!this.expanded);
+      this.el.style.height=`${Math.ceil(expandedHeight*(this.expanded?1:.3))}px`;
+      this.el.closest('.passes-column').style.setProperty('--packed-height',`${Math.ceil(expandedHeight*.3)}px`);
+      this.el.style.setProperty('--expanded-height',`${expandedHeight}px`);
+      labels.forEach((label,i)=>{label.style.setProperty('--packed-y',`${48+i*24}px`);label.tabIndex=this.expanded?0:-1;});
+      slices.forEach((slice,i)=>slice.style.setProperty('--y',`${80+i*10}px`));
       return;
     }
     let top=110;
@@ -142,8 +185,13 @@ export class SliceStack {
       this.positions[i]=center;
       if(i>0)top+=rowHeights[i-1]+spacing;
     }
-    const height=Math.ceil(Math.max(available,top+lastRow));
-    if(this.el.style.height!==`${height}px`)this.el.style.height=`${height}px`;
+    const height=Math.ceil(Math.max(available,top+lastRow,(labels.length*24+70)/.3));
+    this.el.classList.toggle('packed',!this.expanded);
+    this.el.style.height=`${Math.ceil(height*(this.expanded?1:.3))}px`;
+    this.el.closest('.passes-column').style.setProperty('--packed-height',`${Math.ceil(height*.3)}px`);
+    this.el.style.setProperty('--expanded-height',`${height}px`);
+    labels.forEach((label,i)=>{label.style.setProperty('--packed-y',`${44+i*24}px`);label.tabIndex=this.expanded?0:-1;});
+    if(!this.expanded)slices.forEach((slice,i)=>slice.style.setProperty('--y',`${85+i*10}px`));
     this.el.style.setProperty('--collapse-y',`${this.positions.at(-1)}px`);
   }
   face(index,bitmap){
@@ -192,10 +240,7 @@ export class SliceStack {
   async finish(){
     this.el.classList.remove('running');
     this.el.querySelectorAll('.hit').forEach(n=>n.classList.remove('hit'));
-    this.el.classList.add('collapsing');
-    await this.wait(650);
-    this.el.classList.add('flying');
-    await this.wait(850);
+    await this.wait(1500);
     this.el.classList.remove('collapsing','flying');
     const out=document.getElementById('output-frame');
     out.classList.remove('reveal','encoding');

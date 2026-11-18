@@ -58,8 +58,26 @@ c=encode(linearize(rgb(h))*exp2(delta.z));
 float l=lum(c),s=1.-smoothstep(.15+gradeMix.x*.15,.7+gradeMix.x*.15,l),hi=smoothstep(.3+gradeMix.x*.15,.9+gradeMix.x*.15,l);float b=mix(.6,1.4,gradeMix.y);
 c=grade(c,gradeShadow,pow(s,b));c=grade(c,gradeMid,max(0.,1.-s-hi));c=grade(c,gradeHigh,pow(hi,b));c=grade(c,gradeGlobal,1.);frag=vec4(clamp(c,0.,1.),1.);}`;
 export const localShader = header + adjustments + `
-uniform sampler2D mask;uniform float amount;
-void main(){vec3 src=texture(image,uv).rgb;frag=vec4(mix(src,adjust(src),clamp(texture(mask,uv).r*amount,0.,1.)),1.);}`;
+uniform sampler2D mask;uniform float amount;uniform vec2 localToning;
+void main(){
+  vec3 src=texture(image,uv).rgb;
+  vec3 result=adjust(src);
+  // The local Color swatch is HSV hue in degrees and saturation in 0..1.
+  // Tint in linear light, matching source luminance before mask compositing.
+  if(localToning.y>0.){
+    // Interpret hue as the chroma direction in the linear working space.
+    vec3 adjusted=linearize(result),tint=rgb(vec3(localToning.x,1.,1.));
+    float y=clamp(lum(adjusted),0.,1.);
+    vec3 chroma=tint*y/max(lum(tint),1e-5)-vec3(y);
+    // Fit chroma around Y before mixing: bright blue must not clip and dim.
+    vec3 room=mix(vec3(y)/max(-chroma,vec3(1e-5)),vec3(1.-y)/max(chroma,vec3(1e-5)),step(vec3(0),chroma));
+    float gamut=min(1.,min(room.r,min(room.g,room.b)));
+    vec3 target=vec3(y)+chroma*gamut;
+    result=encode(mix(adjusted,target,clamp(localToning.y,0.,1.)));
+  }
+  float weight=clamp(texture(mask,uv).r*amount,0.,1.);
+  frag=vec4(mix(src,result,weight),1.);
+}`;
 export const removeShader = header + `
 uniform sampler2D patchImage;uniform sampler2D mask;uniform vec4 rect;uniform vec3 gain;uniform vec3 bias;uniform float opacity;
 void main(){vec3 c=texture(image,uv).rgb;vec2 p=(uv-rect.xy)/rect.zw;float inside=step(0.,p.x)*step(p.x,1.)*step(0.,p.y)*step(p.y,1.);vec3 fill=encode(max(vec3(0),linearize(texture(patchImage,p).rgb)*gain+bias));frag=vec4(mix(c,fill,texture(mask,p).r*inside*opacity),1.);}`;
@@ -115,7 +133,8 @@ export function adjustmentUniforms(g,local=false){
     // LocalExposure2012 is a -1..1 fraction of the +/-4 EV local slider.
     color:[n('Exposure2012')*(local?4:1),local?n('Temperature'):0,local?n('Tint'):0,
     n('Saturation')*scale],
-    glow:n('Glow')*(local?1:.01)
+    glow:n('Glow')*(local?1:.01),
+    ...(local?{localToning:[n('ToningHue')/360,n('ToningSaturation')]}:{})
   };
 }
 export function curveData(settings,local=false){

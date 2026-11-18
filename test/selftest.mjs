@@ -149,6 +149,8 @@ assert.ok(globalSummary(xmp.globals).some(line => line.startsWith('HSL sat:')));
 assert.ok(xmp.corrections.map(correctionSummary).some(line => line.includes('luma range')));
 assert.equal(adjustmentUniforms({LocalExposure2012:1},true).color[0],4);
 assert.equal(adjustmentUniforms({Exposure2012:-0.5}).color[0],-0.5);
+assert.deepEqual(adjustmentUniforms({LocalToningHue:230,LocalToningSaturation:.345},true).localToning,[230/360,.345]);
+assert.deepEqual(adjustmentUniforms({},true).localToning,[0,0]);
 console.table(acr.records.map(r=>({
   md5:r.id,
   kind:r.kind,

@@ -79,6 +79,7 @@ await call('Emulation.setDeviceMetricsOverride',{
 await call('Page.navigate',{
   url:process.env.LR_SIDECAR_URL || 'http://localhost:4100/'
 });
+await call('Page.bringToFront');
 await until('!!window.lrc');
 assert.equal(await evaluate("document.querySelector('#dropzone').hasAttribute('tabindex')||document.querySelector('#dropzone').hasAttribute('role')"),false,'Drop section must not nest button semantics');
 assert.equal(await evaluate("document.querySelector('#choose-files').tagName"),'BUTTON');
@@ -125,6 +126,9 @@ const layoutCheck=`(()=>{
     fullParametrics:params.at(-1).textContent.includes('Glow')&&params.at(-1).textContent.includes('luma range')};
 })()`;
 await evaluate('document.fonts.ready.then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))');
+assert.equal(await evaluate("document.querySelector('.stack-toggle').getAttribute('aria-expanded')"),'false');
+await evaluate("document.querySelector('.stack-toggle').click()");
+await wait(100);
 assert.deepEqual(await evaluate(layoutCheck),{visible:true,separated:true,fullGlobals:true,fullParametrics:true},'Desktop labels must be complete, readable and separated');
 if(process.argv.includes('--full'))await evaluate("document.querySelector('#fullres').checked=true");
 const compiled=await evaluate('window.lrc.compile().then(output=>({ok:true,output})).catch(e=>({error:e.message,logs:lrc.state.logs}))');
@@ -178,6 +182,7 @@ for(const mode of ['off','warp','auto']){
   assert.equal(await evaluate('lrc.state.maskAlignment.enabled'),mode==='warp'||mode==='auto'&&alignment.apply);
 }
 console.log('ALIGNMENT overrides and Auto pass');
+await evaluate("(()=>{const b=document.querySelector('.stack-toggle');if(b.getAttribute('aria-expanded')==='false')b.click()})()");
 for(let i=0;i<6;i++){
   await evaluate(`document.querySelectorAll('.slice')[${i}].click()`);
   await until(`document.querySelector('#output-name').textContent.startsWith('Pass ${i}')`);
@@ -198,6 +203,8 @@ await call('Emulation.setDeviceMetricsOverride',{
   mobile:true
 });
 await wait(300);
+await evaluate("(()=>{const b=document.querySelector('.stack-toggle');if(b.getAttribute('aria-expanded')==='false')b.click()})()");
+await wait(100);
 assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,'Mobile must not overflow horizontally');
 assert.deepEqual(await evaluate(layoutCheck),{visible:true,separated:true,fullGlobals:true,fullParametrics:true},'Mobile labels must remain complete and separated');
 const mobile=await call('Page.captureScreenshot',{

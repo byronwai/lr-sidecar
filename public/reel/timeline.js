@@ -63,6 +63,9 @@ function lab(r, g, b) {
 }
 const angle = (a, b) => Math.atan2(b, a) * 180 / Math.PI;
 const turn = x => ((x + 540) % 360) - 180;
+const hueFamilies = { red:29, orange:60, yellow:100, green:145, teal:195, blue:260, purple:300, magenta:335 };
+export const hueFamily = hue => Object.keys(hueFamilies).reduce((best,name)=>
+  Math.abs(turn(hue-hueFamilies[name]))<Math.abs(turn(hue-hueFamilies[best]))?name:best,'red');
 export function measureChange(before, after, pass) {
   const width = 256, height = Math.max(1, Math.round(width * after.height / after.width));
   const canvas = new OffscreenCanvas(width, height);
@@ -77,6 +80,8 @@ export function measureChange(before, after, pass) {
   const channel = color ? color.indexOf(Math.max(...color)) : 0;
   let weight = 0, ca = 0, cb = 0, hueWeight = 0, sin = 0, cos = 0;
   const from = [0, 0, 0], to = [0, 0, 0];
+  const histogram=new Float64Array(72);
+  let dominantWeight=0;
   for (let i = 0; i < a.length; i += 4) {
     const w = mask ? Math.min(1, mask[i + channel] / color[channel]) : 1;
     if (!w) continue;
@@ -84,6 +89,11 @@ export function measureChange(before, after, pass) {
     const cx = Math.hypot(x[1], x[2]), cy = Math.hypot(y[1], y[2]);
     for (let j = 0; j < 3; j++) { from[j] += w*x[j]; to[j] += w*y[j]; }
     ca += w*cx; cb += w*cy; weight += w;
+    if(cy>.025){
+      const hue=(angle(y[1],y[2])+360)%360;
+      histogram[Math.round(hue/5)%72]+=w*cy;
+      dominantWeight+=w*cy;
+    }
     // Near-neutral pixels have no reliable hue. Weight circular hue differences
     // by both mask coverage and the smaller of the two pixel chromas.
     const hw = w * Math.min(cx, cy);
@@ -93,10 +103,15 @@ export function measureChange(before, after, pass) {
   const denominator = weight || 1;
   for (let j = 0; j < 3; j++) { from[j] /= denominator; to[j] /= denominator; }
   const delta = to.map((v, i) => v - from[i]);
+  // A circular chroma-weighted mode avoids cancelling complementary colours.
+  const smoothed=Array.from(histogram,(_,i)=>Array.from({length:7},(_,j)=>histogram[(i+j-3+72)%72]).reduce((a,b)=>a+b,0));
+  const mode=smoothed.indexOf(Math.max(...smoothed));
   return { space: 'OKLab', maskCoverage: weight / (width * height), before: from, after: to,
     deltaL: delta[0], deltaA: delta[1], deltaB: delta[2],
     chromaBefore: ca / denominator, chromaAfter: cb / denominator, deltaC: (cb-ca) / denominator,
     hueBefore: angle(from[1], from[2]), hueAfter: angle(to[1], to[2]),
+    dominantHue: dominantWeight?mode*5:null,
+    dominantShare:dominantWeight?smoothed[mode]/dominantWeight:0,
     meanHueShift: hueWeight ? Math.atan2(sin, cos) * 180 / Math.PI : 0 };
 }
 
@@ -106,21 +121,33 @@ function editorial(pass, measured) {
   const names = imageNames.join(' ') || pass.name;
   const gradient = masks.some(m => m.What !== 'Mask/Image');
   if (pass.kind === 'remove') return ['remove', 'Clean the frame', 'remove', 'clean'];
-  const category = pass.kind === 'globals' ? 'global'
+  let category = pass.kind === 'globals' ? 'global'
     : BACKGROUND.test(names) && SUBJECT.test(names) ? 'edge'
     : SUBJECT.test(names) ? 'subject' : BACKGROUND.test(names) ? 'background'
     : SKY.test(names) ? 'sky' : FOLIAGE.test(names) ? 'foliage' : 'gradient';
-  const label = { global: 'Frame', subject: 'Subject', background: 'Background', sky: 'Sky',
+  const partNames=[...new Set(imageNames.map(name=>/clothes|clothing|衣服|服裝/i.test(name)?'Clothes'
+    :/facial skin|body skin|skin|皮膚/i.test(name)?'Skin':/hair|頭髮/i.test(name)?'Hair'
+    :/teeth|牙齒/i.test(name)?'Teeth':/iris|pupil|eye|眼/i.test(name)?'Eyes':/lips|嘴唇/i.test(name)?'Lips':null).filter(Boolean))];
+  if(partNames.length)category=partNames.join(' + ').toLowerCase();
+  const label = partNames.length?partNames.join(' + '):{ global: 'Frame', subject: 'Subject', background: 'Background', sky: 'Sky',
     foliage: 'Foliage', gradient: 'Light', edge: 'Edges' }[category];
   const { deltaL: dl, deltaA: da, deltaB: db, deltaC: dc, hueBefore: h0, hueAfter: h1 } = measured;
   const chromatic = Math.hypot(da, db);
   let direction = 'refine', title = `${label} refinements`;
-  const redApproach = Math.abs(turn(h0 - 29)) - Math.abs(turn(h1 - 29));
-  // A substantial hue rotation is a meaningful colour story even when the
-  // same pass also darkens the image. "→ red" describes movement toward red,
-  // not a claim that every background pixel ends at pure red.
-  if (chromatic > .012 && da > .008 && redApproach > 15 && Math.abs(measured.meanHueShift) > 15) {
-    direction = 'red'; title = `${label} → red`;
+  const family=hueFamily(measured.dominantHue??h1),center=hueFamilies[family];
+  const approach=Math.abs(turn(h0-center))-Math.abs(turn(h1-center));
+  const towardDominant=measured.dominantHue!==null && measured.dominantShare>.2 && measured.chromaBefore>.01
+    && measured.chromaAfter>.025 && chromatic>.012 && approach>15 && Math.abs(measured.meanHueShift)>15;
+  // A mask can be dominated by one hue (e.g. blue sky inside a "background"
+  // mask) while the edit pushes its colour somewhere else (the building turning
+  // red). When the colour clearly rotates, name the direction of the change
+  // itself: the hue of the (Δa, Δb) vector in OKLab. This takes precedence over
+  // "darker", because a large hue rotation is the more visible story.
+  const shiftFamily=hueFamily((Math.atan2(db,da)*180/Math.PI+360)%360);
+  const rotates=chromatic>.012 && Math.abs(measured.meanHueShift)>15;
+  if (towardDominant || rotates) {
+    const named=towardDominant?family:shiftFamily;
+    direction=named;title=`${label} → ${named}`;
   } else if (chromatic > .012 && chromatic > Math.abs(dl) * .65) {
     if (db < -.008) direction = 'cooler';
     else if (db > .008) direction = 'warmer';
@@ -133,24 +160,22 @@ function editorial(pass, measured) {
     direction = dc > 0 ? 'richer' : 'softer';
     title = `${label} → ${direction}`;
   }
-  if (category === 'sky' && Math.abs(turn(h1 - 264)) < 45 && dl < -.008 && dc > .004) {
-    direction = 'blue'; title = 'Sky deeper blue';
-  }
   return [category, title, imageNames[0] || (gradient ? 'light' : category), direction];
 }
 
 const coverPhrases = {
-  red: noun => `Paint the ${noun} red`, cooler: noun => `Cool the ${noun}`,
+  ...Object.fromEntries(Object.keys(hueFamilies).map(family=>[family,noun=>`${noun==='background'?'Paint':'Tint'} the ${noun} ${family}`])),
+  cooler: noun => `Cool the ${noun}`,
   warmer: noun => `Warm the ${noun}`, darker: noun => `A deeper ${noun}`,
   lift: noun => `Lift the ${noun}`, richer: noun => `Richer ${noun} color`,
-  softer: noun => `Soften the ${noun}`, blue: () => 'A deeper blue sky'
+  softer: noun => `Soften the ${noun}`
 };
 function measuredCover(groups) {
   const ranked = [...groups].sort((a, b) => b.score - a.score);
   const hero = ranked[0];
   const total = ranked.reduce((sum, group) => sum + group.score, 0);
   if (!hero || hero.score < total * .55 || hero.score < (ranked[1]?.score || 0) * 1.5) return 'One frame. Many edits.';
-  const noun = { global: 'frame', gradient: 'light', edge: 'edges' }[hero.category] || hero.category;
+  const noun = hero.hero.title.split(/ → | darker| lift| refinements/)[0].toLowerCase();
   return coverPhrases[hero.hero.direction]?.(noun) || 'One frame. Many edits.';
 }
 
@@ -197,6 +222,7 @@ function programRows(pass, correctionIndex = 0) {
     return [{ label: key === 'Temperature' && !local ? 'WB' : label, value: rounded, decimals, from: from || 0 }];
   });
   const curves = [];
+  if(local&&Number(settings.LocalToningSaturation))values.push({text:`Color ${Number(settings.LocalToningHue||0).toFixed(0)}° / ${Number(settings.LocalToningSaturation).toFixed(2)}`});
   for (const [key, label] of [['RedCurve', 'Red'], ['MainCurve', 'RGB'], ['GreenCurve', 'Green'], ['BlueCurve', 'Blue']]) {
     if (settings[key]?.length) curves.push(...curveRows(label, settings[key]));
   }
@@ -275,7 +301,7 @@ export function buildTimeline(original, passes, hasReference) {
     items.forEach(item => { item.disposition = item === hero ? `${beats[index]} beats` : `merged into ${hero.pass.index}`; });
     const chapter = {
       pass: hero.pass, before: previous, after: end.pass.result, title: hero.title,
-      chip: hero.chip, color: ACCENTS[group.category], rows: items.flatMap(item => programRows(item.pass)), number: index
+      chip: hero.chip, color: ACCENTS[group.category]||ACCENTS.subject, rows: items.flatMap(item => programRows(item.pass)), number: index
     };
     cue('program', 1, 'program', chapter);
     cue('answer', 1, 'photo', chapter);

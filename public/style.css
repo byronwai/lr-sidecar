@@ -1099,7 +1099,7 @@ footer b {
     display:flex;
     flex-direction:column;
     gap:16px;
-    height:auto!important;
+    height:auto;
     padding:0 0 4px;
   }
   .stack-world {
@@ -1204,6 +1204,32 @@ footer b {
   }
 }
 .slice.inspected { outline:2px solid var(--color); outline-offset:4px; }
+/* A closed deck is the resting state. One disclosure owns expansion. */
+.stack { transition:height .35s var(--ease); }
+.stack-toggle { position:relative; z-index:2; margin:0 0 6px; font:11px var(--mono); }
+.stack-toggle:focus-visible,.stack:focus-visible,.slice-label:focus-visible { outline:2px solid var(--highlight); outline-offset:4px; }
+.stack.packed { min-height:0; cursor:pointer; display:block; padding:0; }
+.stack.packed .slice-label { position:absolute; top:var(--packed-y)!important; left:38%; right:0; width:auto; min-height:0; padding:0; border:0; pointer-events:none; }
+.stack.packed .slice-label strong { display:flex; width:100%; white-space:nowrap; overflow:hidden; font-size:10px; }
+.stack.packed .slice-label .pass-name { overflow:hidden; text-overflow:ellipsis; }
+.stack.packed .timing { flex:none; margin-left:auto; padding-left:4px; }
+.stack.packed .source,.stack.packed .params { display:none; }
+.stack.packed .stack-world { display:block; left:18%; }
+.stack.packed .slice { width:110px; height:165px; pointer-events:none; }
+.stack.packed .stack-arc { display:block; position:absolute; top:0; left:0; width:100%; height:40px; pointer-events:none; }
+.stack.packed .stack-arc path { fill:none; stroke:var(--system-text); }
+.stack.packed .stack-arc text { fill:var(--highlight); font:10px var(--mono); }
+.stack-packed .stack-controls { display:none; }
+.column.stack-packed>.program-ghost { bottom:auto; height:calc(var(--packed-height,220px) + 45px); font-size:12px; line-height:1.6; }
+@media(max-width:600px) {
+  .passes-column:not(.stack-packed) .stack-controls { display:flex; }
+  .stack.packed .slice { width:72px; height:108px; }
+  .stack.packed .stack-world { left:24%; }
+  .stack.packed .slice-label { left:45%; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .stack,.stack .slice,.stack .slice-label { transition:none!important; }
+}
 /* Deep-sea phosphor: effects belong to chrome, never to photo pixels. */
 @font-face {
   font-family:'Space Mono';
@@ -1328,7 +1354,6 @@ body[data-busy] .wave-strip.pass-pulse i { animation:pass-signal .85s ease-out b
   overflow-wrap:anywhere;
 }
 .output-caption strong { display:block; font:700 clamp(16px,1.55vw,24px)/1.5 var(--frame-title); color:var(--highlight); text-shadow:0 2px 3px #000,0 0 14px #4d6bfe88; }
-.output-caption span { display:block; margin-top:7px; font:400 12px/1.7 var(--mono); color:var(--system-text); text-shadow:0 2px 3px #000; }
 .export-tray { grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:28px; padding:24px 30px; }
 .export-copy { max-width:720px; }
 .export-copy .export-chip { font:700 12px/1.8 var(--mono); margin:0 0 14px; color:var(--system-text); }
