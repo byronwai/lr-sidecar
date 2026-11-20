@@ -1448,4 +1448,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 #caption-editor textarea { width: 100%; box-sizing: border-box; margin: .7rem 0; padding: .7rem; color: inherit; background: #070d18; font: inherit; }
 
 .description-field { display:grid; gap:.35rem; margin:.75rem 0; }
+.edited-jpg { margin:1rem 0; padding:1rem 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.edited-jpg h3 { margin:0 0 .4rem; font:inherit; font-weight:600; }
+.edited-jpg h3 span { color:var(--muted); font-weight:400; }
+.edited-jpg .downloads { flex-wrap:wrap; }
+#edited-jpg-status { overflow-wrap:anywhere; }
 .description-field input { width:min(100%,32rem); box-sizing:border-box; padding:.55rem .7rem; font:inherit; color:inherit; background:transparent; border:1px solid currentColor; border-radius:4px; }

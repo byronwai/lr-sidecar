@@ -56,7 +56,13 @@ flowchart LR
 | `.ARW` | input texture | the largest embedded JPEG preview, orientation, Sony SR2 white balance |
 | `.xmp` | the program | global `crs:` settings, correction stack, mask geometry, lens distortion coefficients |
 | `.acr` | baked textures | content-addressed JPEG XL rasters for AI masks and Remove patches (MD5-checked) |
-| `.jpg` *(optional)* | reference | your Lightroom export, used for the Reel's final frame and an accuracy readout |
+| `.jpg` / `.jpeg` *(optional)* | finished photo | your edited export, used for accurate final colours on the Reel cover, opening and ending |
+
+You can add, replace or remove the edited JPG in the Reel section after compiling.
+The slice walkthrough always uses the reconstructed passes. Without a JPG, the
+finished-photo shots use the compiled image. Adding a JPG does not recompile the
+edit or change the compiled PNG/JPG downloads. A different crop fits within the
+fixed photo area without stretching.
 
 The [format notes](https://byronwai.github.io/2026/11/16/Lightroom-RAW-Sidecars/) describe the ACR container and the XMP correction model in detail.
 

@@ -47,7 +47,8 @@ function clearPreview() {
 
 function updateButton() {
   const compiled = png.hasAttribute('href');
-  button.disabled = exporting || !compiled || !canExport;
+  const busy=window.lrc.state.loading||window.lrc.state.compiling;
+  button.disabled = exporting || busy || !compiled || !canExport;
   modes.disabled = description.disabled = exporting;
   if (!canExport) notice('This browser has no compatible H.264 encoder.', true);
   else if (!compiled) {
@@ -57,12 +58,19 @@ function updateButton() {
   }
 }
 new MutationObserver(updateButton).observe(png, { attributeFilter: ['href'] });
+window.addEventListener('lrc:state-change',updateButton);
+window.addEventListener('lrc:reference-change',()=>{
+  prepared=null;
+  clearPreview();
+  updateButton();
+  if(window.lrc.state.compiled)notice(window.lrc.state.reference?'Ready to export with your edited JPG.':'Ready to export with the compiled image.');
+});
 updateButton();
 
 function prepareTeaser() {
   const { state, finalFrame, reelPasses, log } = window.lrc;
   if (!state.compiled || !state.reelOriginal) return null;
-  if (prepared?.href === png.href) return prepared;
+  if (prepared?.href === png.href && prepared.reference===(state.reference||null)) return prepared;
   const original = state.reelOriginal;
   const compiled = finalFrame();
   const reference = state.reference || null;
@@ -121,6 +129,7 @@ async function makeRenderer(canvas = surface()) {
 
 async function exportReel() {
   if (exporting) throw new Error('A Reel export is already running.');
+  if(window.lrc.state.loading||window.lrc.state.compiling)throw new Error('Wait for the current files to finish loading.');
   if (!prepareTeaser()) throw new Error('Compile an edit first.');
   const started = performance.now();
   const visibilityAtStart = document.visibilityState;

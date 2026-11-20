@@ -98,6 +98,19 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 - The four Teaser schedules matched the pre-change baselines. Suppressing glyphs and their shadows on both canvas surfaces produced identical full-resolution RGBA hashes for all 432 sampled comparisons across the two description settings. Each comparison used a fresh page, as did the baseline.
 - The sample selftest and browser integration suite passed, including cover selection, editable caption copying, pass order and readability regressions.
 
+## Optional edited JPG
+
+- The Reel section offers Add / Replace / Remove for an optional edited JPG.
+  It supplies the cover, opening and ending in both Reel modes; the slice
+  walkthrough and compiled PNG/JPG downloads remain based on the source edit.
+- 43 browser assertions cover fallback without a JPG, replacement and removal,
+  cache refresh in both modes, preserved compiled frames and passes, corrupt JPG
+  recovery, export-time controls and fitting a different aspect ratio without
+  stretching. The full browser integration suite passed against `D:\anzu`.
+- A real DSC09552 JPG was selected through the dedicated file input after
+  compilation. No recompilation occurred; the controls fitted a 390 px viewport.
+  Loading another ARW cleared the previous edited JPG selection.
+
 ## Displayed units
 
 - Values drawn in both Reels use Lightroom's own slider units. Local (mask) sliders are stored in the XMP as fractions: local exposure is shown as the fraction × 4 EV with two decimals, and every other local slider as the fraction × 100, rounded. On the portrait sample, `LocalHighlights2012 = −0.102804` now reads **−10** and `LocalExposure2012 = −0.11` reads **−0.44**. On the street sample, Glow reads **34**. No drawn value carries more than two decimals.

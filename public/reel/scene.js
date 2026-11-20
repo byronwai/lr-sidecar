@@ -43,6 +43,14 @@ export function photoRect(image) {
 }
 
 function photo(ctx, image, rect) {
+  // A separately exported JPG can have a different crop. Fit it inside the
+  // fixed photo area without stretching it or moving the walkthrough geometry.
+  if(Math.abs(Math.log((image.width/image.height)/(rect.w/rect.h)))>.01){
+    const scale=Math.min(rect.w/image.width,rect.h/image.height);
+    const w=image.width*scale,h=image.height*scale;
+    ctx.drawImage(image,rect.x+(rect.w-w)/2,rect.y+(rect.h-h)/2,w,h);
+    return;
+  }
   ctx.drawImage(image, rect.x, rect.y, rect.w, rect.h);
 }
 

@@ -77,10 +77,25 @@ function stage(name,status,text,ms){
 function slot(name,status,text){
   const el=$(`[data-slot="${name}"]`);
   if(!el)return;
-  el.className=`slot ${status}`;
+  el.className=`slot ${name==='jpg'?'reference-slot ':''}${status}`;
   const f=state.files[name];
-  el.querySelector('span').textContent=f?.name||(name==='jpg'?'Lightroom finish':text);
-  el.querySelector('small').textContent=f?`${fmtSize(f.size)} · ${text}`:name==='jpg'?'Optional · used for the Reel payoff':text;
+  el.querySelector('span').textContent=f?.name||(name==='jpg'?'Edited JPG':text);
+  el.querySelector('small').textContent=f?`${fmtSize(f.size)} · ${text}`:name==='jpg'?'Optional · accurate final colours in your Reel':text;
+}
+function referenceChanged(){
+  const file=state.files.jpg;
+  $('#choose-jpg').textContent=file?'Replace edited JPG':'Add edited JPG';
+  $('#remove-jpg').hidden=!file;
+  $('#edited-jpg-status').textContent=file?`${file.name} · used for the cover, opening and ending.`:'No JPG needed — your Reel will use the compiled image.';
+  window.dispatchEvent(new Event('lrc:reference-change'));
+}
+function removeReference(){
+  const previous=state.reference;
+  state.reference=null;
+  delete state.files.jpg;
+  slot('jpg','','');
+  referenceChanged();
+  previous?.close();
 }
 function draw(canvas,bitmap){
   canvas.width=bitmap.width;
@@ -293,6 +308,7 @@ function updateReady(){
   $('#compile').setAttribute('aria-describedby',state.compiled?'reel-status':'status');
   $('#files').disabled=busy;
   $('#choose-files').disabled=busy;
+  $('#choose-jpg').disabled=$('#remove-jpg').disabled=$('#edited-jpg-files').disabled=!!busy;
   $('#fullres').disabled=busy;
   const edges=$('.raster-edges');
   if(edges)edges.disabled=busy;
@@ -303,6 +319,7 @@ function updateReady(){
     $('#status').textContent=`Missing ACR raster: ${missing.join('; ')}. Choose the ACR sidecar for this XMP.`;
     stage('compile','failed',`Missing ${missing.length} referenced raster(s)`);
   }else if(ready&&!busy&&!state.errors.compile&&!state.errors.reel)$('#status').textContent=state.compiled?'04 / Complete · compare the frame, inspect a pass, or Export':'03 / Sources resolved · ready to Compile';
+  window.dispatchEvent(new Event('lrc:state-change'));
 }
 function passControls(){
   const busy=state.compiling||state.reelExporting;
@@ -393,6 +410,21 @@ function invalidate(){
   stage('compile','','waiting');
 }
 async function loadOne(file,extension){
+  if(extension==='jpg'){
+    // Decode before replacing the previous JPG. A bad optional file must not
+    // destroy a valid finish or force the shader passes to compile again.
+    let reference;
+    try {reference=await createImageBitmap(file);}
+    catch {throw new Error('Could not read this edited JPG. Choose a valid JPG or continue with the compiled image.');}
+    const previous=state.reference;
+    state.reference=reference;
+    state.files.jpg={name:file.name,size:file.size};
+    slot('jpg','ready','Finished photo for your Reel');
+    referenceChanged();
+    previous?.close();
+    log(`Edited JPG · ${file.name} · ${reference.width} × ${reference.height}`);
+    return;
+  }
   invalidate();
   if(extension==='arw'||extension==='xmp'){
     state.rasterEdges={};
@@ -411,13 +443,7 @@ async function loadOne(file,extension){
   slot(extension,'loading','reading');
   const started=performance.now();
   try{
-    if(extension==='jpg'){
-      state.reference?.close();
-      state.reference=await createImageBitmap(file);
-      slot('jpg','ready','Lightroom reference · optional');
-      log(`Lightroom reference · ${file.name} · ${state.reference.width} × ${state.reference.height}`);
-    }
-    else if(extension==='xmp'){
+    if(extension==='xmp'){
       state.xmpText=await file.text();
       state.settings=parseXMP(state.xmpText);
       state.groups=buildGroups();
@@ -472,17 +498,14 @@ async function loadFiles(files){
   if(!recognised.length)throw new Error('No files selected');
   state.loading=true;
   // A new source edit must not silently inherit a different photo's reference.
-  if(seen.has('arw')&&!seen.has('jpg')){
-    state.reference?.close();
-    state.reference=null;
-    delete state.files.jpg;
-    slot('jpg','','Lightroom reference · optional');
+  if(seen.has('arw')){
+    removeReference();
   }
   updateReady();
   $('#intake-error').hidden=true;
   try{
     for(const [f,ext]of recognised)await loadOne(f,ext);
-    if(state.arw&&state.settings&&!sourceMismatch()&&!validateBindings().length){
+    if([...seen].some(ext=>ext!=='jpg')&&state.arw&&state.settings&&!sourceMismatch()&&!validateBindings().length){
       $('#status').textContent='Preparing real texture slices';
       try{
         await request('faces',{
@@ -618,6 +641,7 @@ function intake(files){
   queue=queue.catch(()=>{}).then(()=>loadFiles(selected)).catch(e=>{
     $('#intake-error').textContent=e.message;
     $('#intake-error').hidden=false;
+    if(selected.every(f=>/\.jpe?g$/i.test(f.name)))$('#edited-jpg-status').textContent=e.message;
   });
   return queue;
 }
@@ -628,6 +652,16 @@ $('#files').addEventListener('change',e=>{
 $('#choose-files').addEventListener('click',event=>{
   event.stopPropagation();
   $('#files').click();
+});
+$('#choose-jpg').addEventListener('click',()=>$('#edited-jpg-files').click());
+$('#edited-jpg-files').addEventListener('change',e=>{
+  intake(e.target.files);
+  e.target.value='';
+});
+$('#remove-jpg').addEventListener('click',()=>{
+  if(state.loading||state.compiling||state.reelExporting)return;
+  removeReference();
+  $('#intake-error').hidden=true;
 });
 for(const name of ['dragenter','dragover'])$('#dropzone').addEventListener(name,e=>{
   e.preventDefault();

@@ -10,6 +10,7 @@ import {
 } from 'node:path';
 import assert from 'node:assert/strict';
 import { regressionChecks } from './regressions.mjs';
+import { referenceRegressionChecks } from './reference-regressions.mjs';
 import { auditText } from './text-audit.mjs';
 import { auditTutorial } from './tutorial-audit.mjs';
 import { fileURLToPath } from 'node:url';
@@ -88,7 +89,7 @@ await call('Page.bringToFront');
 await until('!!window.lrc');
 assert.equal(await evaluate("document.querySelector('#dropzone').hasAttribute('tabindex')||document.querySelector('#dropzone').hasAttribute('role')"),false,'Drop section must not nest button semantics');
 assert.equal(await evaluate("document.querySelector('#choose-files').tagName"),'BUTTON');
-assert.deepEqual(await evaluate("[...document.querySelector('[data-slot=jpg]').querySelectorAll('span,small')].map(el=>el.textContent)"),['Lightroom finish','Optional · used for the Reel payoff']);
+assert.deepEqual(await evaluate("[...document.querySelector('[data-slot=jpg]').querySelectorAll('span,small')].map(el=>el.textContent)"),['Edited JPG','Optional · accurate final colours in your Reel']);
 await call('Emulation.setEmulatedMedia',{
   features:[{
     name:'prefers-reduced-motion',
@@ -139,6 +140,7 @@ if(process.argv.includes('--full'))await evaluate("document.querySelector('#full
 const compiled=await evaluate('window.lrc.compile().then(output=>({ok:true,output})).catch(e=>({error:e.message,logs:lrc.state.logs}))');
 console.log('COMPILE',compiled);
 assert.equal(compiled.ok,true);
+await referenceRegressionChecks(evaluate);
 await regressionChecks(evaluate,call);
 await evaluate("document.querySelector('#mode-tutorial').click()");
 const tutorial = await evaluate('('+auditTutorial.toString()+')()');
