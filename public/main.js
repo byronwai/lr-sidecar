@@ -195,6 +195,7 @@ worker.addEventListener('message',async({
         corrections:(corrections||[]).map(i=>state.settings.corrections[i]),
         globals:kind==='globals'?state.settings.globals:null,
         asShotKelvin:kind==='globals'&&!state.arw.whiteBalance.estimated?Math.round(state.arw.whiteBalance.kelvin):null,
+        face:kind==='globals'||kind==='remove'?preserveFrame(m.face):null,
         mask:kind==='globals'||kind==='remove'?null:preserveFrame(m.face),
         result:preserveFrame(m.bitmap)
       });
@@ -570,7 +571,7 @@ async function compile(){
     m.original.close();
     // Score and plan immediately, so the compile log is useful before Export.
     try{
-      window.lrcReel?.prepare();
+      await window.lrcReel?.prepare();
     }catch(error){
       log(`Reel planning failed · ${error.message}`);
     }
@@ -682,6 +683,12 @@ window.lrc={
     if(value)delete state.errors.reel;
     updateReady();
     passControls();
+  },
+  tutorialSources(){
+    const job=inspectQueue.then(()=>request('tutorial',{
+      groups:state.groups.map(g=>g.corrections||[]),rasterEdges:state.rasterEdges,rasterWarp:state.rasterWarp}));
+    inspectQueue=job.then(()=>{},()=>{});
+    return job;
   },
   reelPasses:()=>reelPasses.slice(),
   loadFiles:files=>{

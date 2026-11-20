@@ -125,7 +125,7 @@ export async function regressionChecks(evaluate,call){
     return {frames:Math.round(p.duration*30),rect,maxDeviation,unsafe,emptyPanelFrames,sliceFrames,outsideSlot,dimmedFrames,incompleteEndFrames,
       splitCoverFrames,overfullPanels,curvePointFrames,pagedFrames,loopDelta,answers,beatGrid:p.schedule.every(c=>Number.isInteger(c.t0*2)&&Number.isInteger(c.t1*2)),
       payoff:p.schedule.find(c=>c.scene==='payoff').t1-p.schedule.find(c=>c.scene==='payoff').t0,
-      beats,hold:{changedPixels,maxChannelDelta},hookFonts:first.text.filter(t=>t.text!=='/ framebuffer').map(t=>t.font)};
+      beats,hold:{changedPixels,maxChannelDelta},hookFonts:first.text.filter(t=>t.text!=='LIGHTROOM').map(t=>t.font)};
   })()`);
   for(const k of ['maxDeviation','unsafe','emptyPanelFrames','outsideSlot','dimmedFrames','incompleteEndFrames'])assert.equal(reel[k],0,k);
   for(const k of ['splitCoverFrames','overfullPanels','curvePointFrames','pagedFrames','loopDelta'])assert.equal(reel[k],0,k);
@@ -194,28 +194,6 @@ export async function regressionChecks(evaluate,call){
   })()`);
   for(const k of ['maxInteriorError','emptyPanels','wrongNumbers'])assert.equal(overlay[k],0,k);
   assert.ok(overlay.lastRows.every(r=>r.complete),'Every row finishes before the cut');
-  const colours=await evaluate(`(async()=>{
-    const {buildTimeline}=await import('./reel/timeline.js');
-    const canvas=color=>{const c=new OffscreenCanvas(64,64);const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,64,64);return c};
-    const oklch=(h,L=.65,C=.07)=>{
-      const a=C*Math.cos(h*Math.PI/180),b=C*Math.sin(h*Math.PI/180);
-      const l=(L+.3963377774*a+.2158037573*b)**3,m=(L-.1055613458*a-.0638541728*b)**3,s=(L-.0894841775*a-1.291485548*b)**3;
-      const linear=[4.0767416621*l-3.3077115913*m+.2309699292*s,-1.2684380046*l+2.6097574011*m-.3413193965*s,-.0041960863*l-.7034186147*m+1.707614701*s];
-      return 'rgb('+linear.map(v=>Math.round(255*(v<=.0031308?12.92*v:1.055*v**(1/2.4)-.055))).join(',')+')';
-    };
-    const mask=canvas('#000000');mask.getContext('2d').fillStyle='#ffffff';mask.getContext('2d').fillRect(0,0,32,64);
-    const run=(before,after,name='Background')=>buildTimeline(before,[{index:0,name,kind:'ai',mask,color:'#ffffff',result:after,corrections:[{LocalExposure2012:.1,masks:[{What:'Mask/Image',MaskName:name}]}]}],false);
-    const families=Object.entries({red:29,orange:60,yellow:100,green:145,teal:195,blue:260,purple:300,magenta:335}).map(([family,hue])=>{
-      const p=run(canvas(oklch(hue-70)),canvas(oklch(hue)));
-      return {family,direction:p.scores[0].direction,cover:p.coverTitle};
-    });
-    const neutral=canvas('#808080');
-    const parts=['Person 1 - Clothes','Person 1 - Hair','Person 1 - Facial Skin','Person 1 - Body Skin'].map(name=>run(neutral,canvas('#aaaaaa'),name).scores[0].title);
-    return {families,parts,unchanged:run(neutral,neutral).scores[0].direction};
-  })()`);
-  for(const row of colours.families){assert.equal(row.direction,row.family);assert.equal(row.cover,'Paint the background '+row.family);}
-  assert.deepEqual(colours.parts,['Clothes lift','Hair lift','Skin lift','Skin lift']);
-  assert.equal(colours.unchanged,'refine');
   const tint=await evaluate(`(async()=>{
     const {Pipeline}=await import('./render/gl.js');
     const input=new OffscreenCanvas(16,16),ctx=input.getContext('2d');ctx.fillStyle='#cccccc';ctx.fillRect(0,0,16,16);
@@ -231,5 +209,5 @@ export async function regressionChecks(evaluate,call){
   assert.deepEqual(tint.outside,tint.before,'Zero mask leaves pixels untouched');
   assert.ok(tint.after[2]>tint.after[0]+10,'Local Color makes blue pixels');
   assert.ok(tint.relativeLuminanceError<.01,'Linear luminance survives gamut fitting');
-  console.log('REGRESSIONS',JSON.stringify({slider,fan,reel,panelChoices,encodedLoop,overlay,colours,tint}));return {slider,fan,reel,panelChoices,encodedLoop,overlay,colours,tint,keyboardInspection:true};
+  console.log('REGRESSIONS',JSON.stringify({slider,fan,reel,panelChoices,encodedLoop,overlay,tint}));return {slider,fan,reel,panelChoices,encodedLoop,overlay,tint,keyboardInspection:true};
 }

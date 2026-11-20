@@ -41,8 +41,7 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 - The page stack starts packed. Measured height is **30.02%** of expanded height at 1440 px and **30.02%** at 375 px; neither layout overflows horizontally. Click/tap and Enter/Space expand, Escape and the collapse control pack it; reduced motion switches immediately. Parameters and the separation slider show when expanded.
 - The portrait sample and street sample show their mini stack in rewind and every chapter program beat. After half a beat the slice becomes a roughly 64 px panel-header thumbnail, retained through answer and hold. All 630 audited frames keep the motif inside the approved panel slot. Photo geometry remains fixed and held photo pixels remain unchanged outside that slot.
 - Landscape sample local Color is applied in linear light with luminance-preserving gamut fitting. Measured sky HSV hue moves **236.82° → 229.43°**, toward the 230° swatch. Mean masked RGB error against the Lightroom export improves **28.21 → 26.47/255**; the export still differs visibly.
-- Titles name colour from measurements inside each mask. A colour family is named when the hue clearly moves toward the mask's dominant OKLCh hue, or when the mean hue rotates by more than 15°, in which case the family is the direction of the OKLab colour change. Otherwise titles fall back to warmer, cooler, darker or lift. Clothes, Hair and Skin are named separately. Across four sample edits, the covers were "Paint the background red" (portrait: background hue +32°, change direction ≈ 41°), "One frame. Many edits." (twice) and "A deeper background".
-- Four sample tables, title changes and artifact names are in the round 5 results. Contact sheets await seeked before every draw. Selftest, browser integration, all eight hue families, sub-part names, local tint luminance and mask isolation pass.
+- The historical colour-title experiment was superseded by the factual pipeline covers verified below.
 
 ## Approved Reel proposals
 
@@ -81,3 +80,25 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 - Travel lasts **560 ms**, with a 30 ms pass stagger, reversed on collapse. Phone cards dock beside bottom-up text rows. Twelve endpoint screenshots and both eight-frame filmstrips were saved at 0, 15, 30, 45, 60, 75, 90 and 100% of travel.
 - Tab reaches the disclosure; Enter expands and Escape collapses with visible focus. A pointer click on an exposed fan card inspects that pass after travel ends. Repeated toggles during travel are ignored. Reduced motion reaches the same endpoints immediately, with no travel animations.
 - Selftest and browser integration pass, including fan order, final positions, reverse stagger, queued inspection and reduced-motion regressions.
+
+## Pipeline Reels
+
+| Sample | Tutorial pass indices | Duration | Frames per export |
+|---|---|---:|---:|
+| Portrait | 0, 1, 2, 3, 4 | 17.5 s | 525 |
+| Street | 0, 2, 3, 4, 5 | 17.5 s | 525 |
+| Outdoor portrait | 1, 2, 3, 5, 6 | 17.5 s | 525 |
+| Indoor portrait | 0, 1, 2 | 12.5 s | 375 |
+
+- Eight Tutorial exports cover the empty and populated description for each sample. Each contact sheet uses completed video seeks at half-second intervals and the closing frame. All eight decoded opening and closing frames matched exactly.
+- The text audit inspected 3,900 Tutorial frames and 2,490 Teaser frames, including partial typewriter strings. All 225 distinct strings passed the whitelist.
+- Every chosen Tutorial pass matched the compiled pass and page stack. Each began with a 0.5 s deck lift followed by 2.0 s of controls. The photo rectangle moved 0 px. The largest step panel overlap covered 8.67% of the subject mask.
+- The Tutorial panel measured 884 px, or 81.85% of frame width. Minimum effective text sizes were 30 px for values, 32 px for kickers and 30 px for labels. All text stayed within the safe area. Each step showed at most four slider rows.
+- Independent XML and drawing checks found zero mismatches in slider values, knob positions, curves, grading wheels, mixer swatches, mask bindings and guide geometry. Captions contained every explicit HSL value, including zeroes.
+- The four Teaser schedules matched the pre-change baselines. Suppressing glyphs and their shadows on both canvas surfaces produced identical full-resolution RGBA hashes for all 432 sampled comparisons across the two description settings. Each comparison used a fresh page, as did the baseline.
+- The sample selftest and browser integration suite passed, including cover selection, editable caption copying, pass order and readability regressions.
+
+## Displayed units
+
+- Values drawn in both Reels use Lightroom's own slider units. Local (mask) sliders are stored in the XMP as fractions: local exposure is shown as the fraction × 4 EV with two decimals, and every other local slider as the fraction × 100, rounded. On the portrait sample, `LocalHighlights2012 = −0.102804` now reads **−10** and `LocalExposure2012 = −0.11` reads **−0.44**. On the street sample, Glow reads **34**. No drawn value carries more than two decimals.
+- On-screen text is measured facts (pass numbers, mask and control names, values, camera line) plus the editor's optional description; no generated wording.

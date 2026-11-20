@@ -10,6 +10,7 @@ import { detectMaskAlignment } from './render/mask-alignment.js';
 import {
   Pipeline,
   orientCanvas,
+  finishOrientedCanvas,
   finishCanvas
 } from './render/gl.js';
 let preview=null,arw=null,acr=null,rasters=new Map(),pipeline=null,outputs=new Map(),settings=null,busy=false;
@@ -194,6 +195,62 @@ async function prepareFaces(m){
     renderer.dispose();
   }
 }
+// Prepare individual mask geometry in the same crop as the compiled frame.
+async function tutorialSources({job, groups, rasterEdges, rasterWarp}) {
+  const orientation = settings.orientation || arw.orientation;
+  const sensor = await thumbnail(preview,1400);
+  let orient, crop = new DOMMatrix();
+  const oriented = orientCanvas(sensor,orientation,m=>orient=m);
+  const finished = finishOrientedCanvas(oriented,settings,orientation,m=>crop=m).canvas;
+  const transform = new DOMMatrix().scale(1/finished.width,1/finished.height)
+    .multiply(crop).multiply(orient).scale(sensor.width,sensor.height);
+  const camera=new OffscreenCanvas(finished.width,finished.height);
+  const scale=Math.min(camera.width/oriented.width,camera.height/oriented.height);
+  const w=oriented.width*scale,h=oriented.height*scale,ctx=camera.getContext('2d');
+  ctx.fillStyle='#04070f';ctx.fillRect(0,0,camera.width,camera.height);
+  ctx.drawImage(oriented,(camera.width-w)/2,(camera.height-h)/2,w,h);
+  const original=camera.transferToImageBitmap();
+  sensor.close();
+  const masks = {};
+  const lens = rasterWarp==='warp' || rasterWarp==='auto' && alignmentCache?.result.apply ? settings.lensDistort : null;
+  // Individual AI selections can be subtracted or intersected. The chapter's
+  // composited face cannot identify any one of those contours.
+  for (const [pass, indices] of groups.entries()) {
+    let prior=null;
+    try {
+      for (const [i,index] of indices.entries()) {
+        const correction=settings.corrections[index];
+        if(correction.CorrectionActive===false)continue;
+        const input=prior?.texture || outputs.get(pass-1)?.texture || pipeline.input;
+        for (const [j,m] of correction.masks.entries()) {
+          if (m.MaskActive===false || !['Mask/Image','Mask/RangeMask','Mask/Paint'].includes(m.What)) continue;
+          const target=pipeline.buildMask({masks:[{...m,MaskBlendMode:0,MaskValue:1,MaskInverted:false}]},
+            input,rasters,settings.globals,rasterEdges,lens);
+          try {
+            const key=index+':'+j;
+            masks[key]=await maskFace(target,'ffffff');
+
+          }
+          finally { pipeline.release(target); }
+        }
+        // Range selections sample the image entering this correction, which
+        // can be partway through a group of parametric edits.
+        const needsInput=indices.slice(i+1).some(k=>settings.corrections[k].masks.some(m=>m.What==='Mask/RangeMask'));
+        if(needsInput){
+          const mask=pipeline.buildMask(correction,input,rasters,settings.globals,rasterEdges,lens);
+          try {
+            const next=pipeline.correction(input,correction,mask);
+            if(prior)pipeline.release(prior);
+            prior=next;
+          } finally {pipeline.release(mask);}
+        }
+      }
+    } finally {if(prior)pipeline.release(prior);}
+  }
+  send('tutorial',{job,original,masks,transform:[transform.a,transform.b,transform.c,transform.d,transform.e,transform.f]},
+    [original,...Object.values(masks)]);
+}
+
 async function compile(message){
   if(!preview||!acr)throw new Error('Read ARW and ACR before compiling');
   settings=message.settings;
@@ -399,6 +456,16 @@ onmessage=async event=>{
       });
     }else if(m.type==='faces')await prepareFaces(m);
     else if(m.type==='compile')await compile(m);
+    else if(m.type==='tutorial'){
+      // Temporary curve textures, raster brush textures and range LUTs belong
+      // to this request. Retain only the compiler's existing pass outputs.
+      const textures=pipeline.textures.length, buffers=pipeline.framebuffers.length;
+      try {await tutorialSources(m);}
+      finally {
+        for(const texture of pipeline.textures.splice(textures))pipeline.gl.deleteTexture(texture);
+        for(const buffer of pipeline.framebuffers.splice(buffers))pipeline.gl.deleteFramebuffer(buffer);
+      }
+    }
     else if(m.type==='show')await showOutput(m.index,job);
   }catch(error){
     send('error',{

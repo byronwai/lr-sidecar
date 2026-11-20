@@ -434,7 +434,7 @@ export class Pipeline {
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }
-export function orientCanvas(source,orientation=1){
+export function orientCanvas(source,orientation=1,onTransform){
   const swap=orientation>=5,
   c=new OffscreenCanvas(swap?source.height:source.width,swap?source.width:source.height),
   ctx=c.getContext('2d'),
@@ -451,6 +451,7 @@ export function orientCanvas(source,orientation=1){
     8:[0,-1,1,0,0,w]
   };
   ctx.setTransform(...(transforms[orientation]||transforms[1]));
+  onTransform?.(ctx.getTransform());
   ctx.drawImage(source,0,0);
   return c;
 }
@@ -460,7 +461,7 @@ export function finishCanvas(pixels,settings,orientation){
   return finishOrientedCanvas(orientCanvas(base,orientation),settings,orientation);
 }
 // Reel frames and masks are already oriented. Apply the same crop to each.
-export function finishOrientedCanvas(src,settings,orientation){
+export function finishOrientedCanvas(src,settings,orientation,onTransform){
   const g=settings.globals;
   if(!g.HasCrop)return {
     canvas:src,
@@ -510,6 +511,7 @@ export function finishOrientedCanvas(src,settings,orientation){
   ctx=out.getContext('2d');
   ctx.translate(out.width/2,out.height/2);
   ctx.rotate(-angle);
+  onTransform?.(ctx.getTransform().translate(-src.width*center[0],-src.height*center[1]));
   ctx.drawImage(src,-src.width*center[0],-src.height*center[1]);
   return {
     canvas:out,

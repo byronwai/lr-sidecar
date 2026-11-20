@@ -1,7 +1,8 @@
 const CRS='http://ns.adobe.com/camera-raw-settings/1.0/';
 const AUX='http://ns.adobe.com/exif/1.0/aux/';
 const TIFF='http://ns.adobe.com/tiff/1.0/';
-const canonical=(name,uri,local)=>uri===CRS?'crs:'+local:uri===AUX?'aux:'+local:uri===TIFF?'tiff:'+local:/^(crs|aux|tiff):/.test(name)?`{${uri??''}}${local}`:name;
+const EXIF='http://ns.adobe.com/exif/1.0/';
+const canonical=(name,uri,local)=>uri===CRS?'crs:'+local:uri===AUX?'aux:'+local:uri===TIFF?'tiff:'+local:uri===EXIF?'exif:'+local:/^(crs|aux|tiff|exif):/.test(name)?`{${uri??''}}${local}`:name;
 const scalar = (s,key='') => /Digest|SyncID|^pm_patch|^IngestInfo/.test(key) ? s : /^(true|false)$/i.test(s) ? s.toLowerCase()==='true' : /^[+-]?(\d+\.?\d*|\.\d+)$/.test(s.trim()) ? Number(s) : s;
 // Minimal non-validating XML tree for the Node self-test only. Browsers always use DOMParser.
 function fallbackTree(xml) {
@@ -106,6 +107,14 @@ export function parseXMP(input, Parser=globalThis.DOMParser){
   return {
     lensDistort:coefficients.length===4&&coefficients.every(Number.isFinite)?coefficients:null,
     capturedAt: desc.attrs['exif:DateTimeOriginal'] ?? desc.children.find(c => c.name === 'exif:DateTimeOriginal')?.text ?? null,
+    lensModel:['aux:Lens','exifEX:LensModel','exif:LensModel'].map(name=>
+      all(tree,'rdf:Description').find(n=>n.attrs[name])?.attrs[name] || all(tree,name)[0]?.text).find(Boolean) || null,
+    camera:Object.fromEntries(['FocalLength','FNumber','ExposureTime','ISOSpeedRatings'].map(key=>{
+      const name='exif:'+key, node=all(tree,name)[0];
+      const raw=all(tree,'rdf:Description').find(n=>n.attrs[name]!=null)?.attrs[name] ?? (node && value(node));
+      const [a,b=1]=String(Array.isArray(raw)?raw[0]:raw).split('/').map(Number);
+      return [key,a/b];
+    }).filter(([,v])=>Number.isFinite(v)&&v>0)),
     globals,
     corrections:corrections.map((c,i)=>({
       ...c,

@@ -5,7 +5,7 @@ export const HEIGHT = 1920;
 export const FPS = 30;
 export const BEAT = 0.5;
 export const PHOTO_WIDTH = 1044;
-const MIN_SCORE = 0.6;
+export const MIN_SCORE = 0.6;
 const SUBJECT = /主體|主体|人物|人像|subject|person|people/i;
 const BACKGROUND = /背景|background/i;
 const SKY = /天空|sky/i;
@@ -14,6 +14,15 @@ const ACCENTS = {
   global: '#6caeff', remove: '#f088b0', background: '#edb47c', subject: '#ffa858',
   sky: '#82d9eb', foliage: '#80d8a0', gradient: '#c19dfb', edge: '#c19dfb'
 };
+
+// XMP stores local (mask) sliders as fractions; Lightroom shows them in its own
+// units. Local exposure is a fraction of the ±4 EV slider; every other local
+// slider is a fraction of ±100. Global values are already in Lightroom units.
+export function uiValue(key, raw, local) {
+  if (!local) return { value: raw, decimals: key === 'Exposure2012' ? 2 : 0 };
+  if (key === 'Exposure2012') return { value: Number((raw * 4).toFixed(2)), decimals: 2 };
+  return { value: Math.round(raw * 100), decimals: 0 };
+}
 
 export function difference(a, b) {
   let sum = 0;
@@ -63,9 +72,6 @@ function lab(r, g, b) {
 }
 const angle = (a, b) => Math.atan2(b, a) * 180 / Math.PI;
 const turn = x => ((x + 540) % 360) - 180;
-const hueFamilies = { red:29, orange:60, yellow:100, green:145, teal:195, blue:260, purple:300, magenta:335 };
-export const hueFamily = hue => Object.keys(hueFamilies).reduce((best,name)=>
-  Math.abs(turn(hue-hueFamilies[name]))<Math.abs(turn(hue-hueFamilies[best]))?name:best,'red');
 export function measureChange(before, after, pass) {
   const width = 256, height = Math.max(1, Math.round(width * after.height / after.width));
   const canvas = new OffscreenCanvas(width, height);
@@ -115,12 +121,45 @@ export function measureChange(before, after, pass) {
     meanHueShift: hueWeight ? Math.atan2(sin, cos) * 180 / Math.PI : 0 };
 }
 
-function editorial(pass, measured) {
-  const masks = activeMasks(pass);
-  const imageNames = masks.filter(m => m.What === 'Mask/Image').map(m => m.MaskName || '');
-  const names = imageNames.join(' ') || pass.name;
-  const gradient = masks.some(m => m.What !== 'Mask/Image');
-  if (pass.kind === 'remove') return ['remove', 'Clean the frame', 'remove', 'clean'];
+export const pipelineHeadline=count=>count+(count===1?' pass':' passes')+' → 1 frame';
+
+export function passLabel(pass) {
+  return ['PASS '+pass.index,pass.name].filter(Boolean).join(' · ');
+}
+
+export function maskType(mask) {
+  if(mask.What==='Mask/Image'){
+    if(BACKGROUND.test(mask.MaskName))return 'AI background mask';
+    if(SUBJECT.test(mask.MaskName))return 'AI subject mask';
+    if(SKY.test(mask.MaskName))return 'AI sky mask';
+    return 'AI mask';
+  }
+  return {'Mask/Gradient':'Linear gradient','Mask/CircularGradient':'Radial gradient',
+    'Mask/Paint':'Brush','Mask/RangeMask':Number(mask.CorrectionRangeMask?.Type)===2?'Luminance range':'Color range'}[mask.What] || mask.What;
+}
+export function passType(pass) {
+  if(pass.kind==='remove')return 'Remove';
+  if(pass.kind==='globals'){
+    const g=pass.globals||{}, panels=['Basic'];
+    if(Object.keys(g).some(k=>k.includes('Adjustment') && Number(g[k])))panels.push('HSL');
+    if(['ToneCurvePV2012','ToneCurvePV2012Red','ToneCurvePV2012Green','ToneCurvePV2012Blue'].some(k=>g[k]?.some(p=>{
+      const [x,y]=String(p).split(',').map(Number);return x!==y;
+    })))panels.push('Tone Curve');
+    if(Object.keys(g).some(k=>/^(SplitToning|ColorGrade).*(Sat|Lum)/.test(k)&&Number(g[k])))panels.push('Color Grading');
+    return 'Global · '+panels.join(' + ');
+  }
+  const masks=activeMasks(pass),counts=new Map();
+  for(const m of masks){const type=maskType(m);counts.set(type,(counts.get(type)||0)+1);}
+  const types=[...counts].map(([type,n])=>type+(n>1?' × '+n:''));
+  const rasters=masks.filter(m=>m.MaskDigest).length;
+  if(rasters)types.push(rasters+(rasters===1?' raster':' rasters'));
+  return types.join(' · ') || 'Masking';
+}
+
+function chapterCategory(pass) {
+  if(pass.kind==='remove')return 'remove';
+  const imageNames=activeMasks(pass).filter(m=>m.What==='Mask/Image').map(m=>m.MaskName||'');
+  const names=imageNames.join(' ')||pass.name;
   let category = pass.kind === 'globals' ? 'global'
     : BACKGROUND.test(names) && SUBJECT.test(names) ? 'edge'
     : SUBJECT.test(names) ? 'subject' : BACKGROUND.test(names) ? 'background'
@@ -129,54 +168,14 @@ function editorial(pass, measured) {
     :/facial skin|body skin|skin|皮膚/i.test(name)?'Skin':/hair|頭髮/i.test(name)?'Hair'
     :/teeth|牙齒/i.test(name)?'Teeth':/iris|pupil|eye|眼/i.test(name)?'Eyes':/lips|嘴唇/i.test(name)?'Lips':null).filter(Boolean))];
   if(partNames.length)category=partNames.join(' + ').toLowerCase();
-  const label = partNames.length?partNames.join(' + '):{ global: 'Frame', subject: 'Subject', background: 'Background', sky: 'Sky',
-    foliage: 'Foliage', gradient: 'Light', edge: 'Edges' }[category];
-  const { deltaL: dl, deltaA: da, deltaB: db, deltaC: dc, hueBefore: h0, hueAfter: h1 } = measured;
-  const chromatic = Math.hypot(da, db);
-  let direction = 'refine', title = `${label} refinements`;
-  const family=hueFamily(measured.dominantHue??h1),center=hueFamilies[family];
-  const approach=Math.abs(turn(h0-center))-Math.abs(turn(h1-center));
-  const towardDominant=measured.dominantHue!==null && measured.dominantShare>.2 && measured.chromaBefore>.01
-    && measured.chromaAfter>.025 && chromatic>.012 && approach>15 && Math.abs(measured.meanHueShift)>15;
-  // A mask can be dominated by one hue (e.g. blue sky inside a "background"
-  // mask) while the edit pushes its colour somewhere else (the building turning
-  // red). When the colour clearly rotates, name the direction of the change
-  // itself: the hue of the (Δa, Δb) vector in OKLab. This takes precedence over
-  // "darker", because a large hue rotation is the more visible story.
-  const shiftFamily=hueFamily((Math.atan2(db,da)*180/Math.PI+360)%360);
-  const rotates=chromatic>.012 && Math.abs(measured.meanHueShift)>15;
-  if (towardDominant || rotates) {
-    const named=towardDominant?family:shiftFamily;
-    direction=named;title=`${label} → ${named}`;
-  } else if (chromatic > .012 && chromatic > Math.abs(dl) * .65) {
-    if (db < -.008) direction = 'cooler';
-    else if (db > .008) direction = 'warmer';
-    else direction = dc > 0 ? 'richer' : 'softer';
-    title = `${label} → ${direction}`;
-  } else if (Math.abs(dl) > .008) {
-    direction = dl > 0 ? 'lift' : 'darker';
-    title = `${label} ${direction}`;
-  } else if (Math.abs(dc) > .006) {
-    direction = dc > 0 ? 'richer' : 'softer';
-    title = `${label} → ${direction}`;
-  }
-  return [category, title, imageNames[0] || (gradient ? 'light' : category), direction];
+  return category;
 }
 
-const coverPhrases = {
-  ...Object.fromEntries(Object.keys(hueFamilies).map(family=>[family,noun=>`${noun==='background'?'Paint':'Tint'} the ${noun} ${family}`])),
-  cooler: noun => `Cool the ${noun}`,
-  warmer: noun => `Warm the ${noun}`, darker: noun => `A deeper ${noun}`,
-  lift: noun => `Lift the ${noun}`, richer: noun => `Richer ${noun} color`,
-  softer: noun => `Soften the ${noun}`
-};
-function measuredCover(groups) {
-  const ranked = [...groups].sort((a, b) => b.score - a.score);
-  const hero = ranked[0];
-  const total = ranked.reduce((sum, group) => sum + group.score, 0);
-  if (!hero || hero.score < total * .55 || hero.score < (ranked[1]?.score || 0) * 1.5) return 'One frame. Many edits.';
-  const noun = hero.hero.title.split(/ → | darker| lift| refinements/)[0].toLowerCase();
-  return coverPhrases[hero.hero.direction]?.(noun) || 'One frame. Many edits.';
+// The compact panel uses measured chromatic movement to prioritize a channel curve.
+function colorShift(m) {
+  const chromatic=Math.hypot(m.deltaA,m.deltaB);
+  return chromatic>.012 && (Math.abs(m.meanHueShift)>15 ||
+    chromatic>Math.abs(m.deltaL)*.65 && Math.abs(m.deltaB)>.008);
 }
 
 const sliders = [
@@ -203,7 +202,7 @@ function curveRows(label, points) {
 // Preserve the established chapter selection and beat budget independently of
 // the compact Reel panel. These detailed rows are used only to measure density.
 function pacingRows(pass, correctionIndex = 0) {
-  if (pass.kind === 'remove') return [{ text: 'Remove · selected patch' }];
+  if (pass.kind === 'remove') return [{ text: 'Remove' }];
   const local = pass.kind !== 'globals';
   const corrections = pass.corrections?.filter(c => c.CorrectionActive !== false) || [];
   const correction = corrections[correctionIndex];
@@ -216,44 +215,43 @@ function pacingRows(pass, correctionIndex = 0) {
   const values = sliders.flatMap(([key, label]) => {
     const value = Number(settings[(local ? 'Local' : '') + key]);
     if (!Number.isFinite(value) || value === 0) return [];
-    const digits = local || key === 'Exposure2012' ? 2 : 0;
-    const decimals = digits;
-    const rounded = Number(value.toFixed(decimals));
+    const { value: shown, decimals } = uiValue(key, value, local);
+    const rounded = Number(shown.toFixed(decimals));
     const from = key === 'Temperature' && !local ? pass.asShotKelvin : 0;
     if (key === 'Temperature' && !local && !from) return [{ text: `White balance ${rounded} K` }];
     return [{ label: key === 'Temperature' && !local ? 'WB' : label, value: rounded, decimals, from: from || 0 }];
   });
   const curves = [];
-  if(local&&Number(settings.LocalToningSaturation))values.push({text:`Color ${Number(settings.LocalToningHue||0).toFixed(0)}° / ${Number(settings.LocalToningSaturation).toFixed(2)}`});
+  if(local&&Number(settings.LocalToningSaturation))values.push({text:`Color ${Number(settings.LocalToningHue||0).toFixed(0)}° / ${Math.round(Number(settings.LocalToningSaturation)*100)}`});
   for (const [key, label] of [['RedCurve', 'Red'], ['MainCurve', 'RGB'], ['GreenCurve', 'Green'], ['BlueCurve', 'Blue']]) {
     if (settings[key]?.length) curves.push(...curveRows(label, settings[key]));
   }
   const rest = correctionIndex + 1 < corrections.length ? pacingRows(pass, correctionIndex + 1) : [];
   if (curves.length) return [...rows, ...values, ...curves, ...rest];
-  if (!values.length && !rows.length) return rows.concat({ text: 'Base color profile' });
+  if (!values.length && !rows.length) return rows.concat({ text: 'Profile' });
   return rows.concat(values, rest);
 }
 
 // Rank unrounded settings by distance from neutral / slider half-range. Local
 // XMP sliders are normalized to +/-1 (Exposure maps to +/-4 EV); global basic
 // sliders use +/-100, Exposure +/-5 EV, WB 2000..50000 K and Tint +/-150.
-function valueCandidates(pass) {
+export function valueCandidates(pass) {
   const local = pass.kind !== 'globals';
   const settings = local ? (pass.corrections || []).filter(c => c.CorrectionActive !== false) : [pass.globals || {}];
   return settings.flatMap(s => {
     const values = sliders.flatMap(([key, label]) => {
       const value = Number(s[(local ? 'Local' : '') + key]);
       if (!Number.isFinite(value) || value === 0) return [];
-      const decimals = local || key === 'Exposure2012' ? 2 : 0;
+      const { value: shown, decimals } = uiValue(key, value, local);
       const from = key === 'Temperature' && !local ? pass.asShotKelvin || 0 : 0;
       const range = local ? 1 : key === 'Exposure2012' ? 5 : key === 'Temperature' ? 48000 : key === 'Tint' ? 150 : 100;
       const row = key === 'Temperature' && !local && !from
         ? { text: `White balance ${Math.round(value)} K` }
-        : { label: key === 'Temperature' && !local ? 'WB' : label, value: Number(value.toFixed(decimals)), decimals, from };
+        : { label: key === 'Temperature' && !local ? 'WB' : label, value: Number(shown.toFixed(decimals)), decimals, from };
       return [{ key, strength: Math.abs(value - from) / range, row }];
     });
     if (local && Number(s.LocalToningSaturation)) values.push({ key: 'Color', strength: Math.abs(Number(s.LocalToningSaturation)),
-      row: { text: `Color ${Number(s.LocalToningHue || 0).toFixed(0)}° / ${Number(s.LocalToningSaturation).toFixed(2)}` } });
+      row: { text: `Color ${Number(s.LocalToningHue || 0).toFixed(0)}° / ${Math.round(Number(s.LocalToningSaturation) * 100)}` } });
     if (!local) for (const band of ['Red','Orange','Yellow','Green','Aqua','Blue','Purple','Magenta']) {
       for (const field of ['Hue','Saturation','Luminance']) {
         const value = Number(s[field + 'Adjustment' + band]);
@@ -265,7 +263,7 @@ function valueCandidates(pass) {
   });
 }
 
-function compactRows(passes, hero, direction, base = false) {
+function compactRows(passes, hero, preferCurve, base = false) {
   const candidates = passes.flatMap(valueCandidates).sort((a,b) => b.strength - a.strength);
   const chosen = [];
   const take = (accept, reason) => {
@@ -282,7 +280,7 @@ function compactRows(passes, hero, direction, base = false) {
       }));
     const channel = curves.filter(c => c.label !== 'RGB');
     const hueMove = candidates.find(c => ['Temperature','Tint','Color'].includes(c.key))?.strength || 0;
-    const curveColour = channel.length && !['darker','lift','refine','richer','softer'].includes(direction)
+    const curveColour = channel.length && preferCurve
       && Math.max(...channel.map(c => c.strength)) > hueMove;
     if (curveColour) {
       const names = [...new Set(curves.map(c => c.label))];
@@ -305,9 +303,9 @@ function compactRows(passes, hero, direction, base = false) {
   const masks = hero.corrections?.find(c => c.CorrectionActive !== false)?.masks.filter(m => m.MaskActive !== false) || [];
   const mask = masks.length ? { text: maskExpression(masks, m => m.What === 'Mask/Image'
     ? m.MaskName || 'selection' : maskNames[m.What] || 'mask') }
-    : hero.kind === 'remove' ? { text: 'Remove · selected patch' } : null;
+    : hero.kind === 'remove' ? { text: 'Remove' } : null;
   const rows = [...(!base && mask ? [mask] : []), ...chosen.map(c => ({ ...c.row, reason: c.reason }))];
-  return rows.length ? rows : [{ text: 'Base color profile' }];
+  return rows.length ? rows : [{ text: 'Profile' }];
 }
 
 function allocateBeats(groups) {
@@ -322,14 +320,24 @@ function allocateBeats(groups) {
   return beats;
 }
 
-export function buildTimeline(original, passes, hasReference) {
+export function groupChapter(groups, item) {
+  const last = groups.at(-1);
+  if (last && last.category === item.category && item.i - last.end.i <= 2) {
+    last.end = item;
+    if (item.score > last.hero.score) last.hero = item;
+    last.items.push(item);
+    last.score += item.score;
+  } else groups.push({ category: item.category, end: item, hero: item, score: item.score, items: [item] });
+}
+
+export function buildTimeline(original, passes, hasReference, description = '') {
   const scores = passes.map((pass, i) => {
     const before = passes[i - 1]?.result || original;
     const measured = measureChange(before, pass.result, pass);
-    const [category, title, chip, direction] = editorial(pass, measured);
+    const category=chapterCategory(pass), title=passLabel(pass), chip=passType(pass);
     return {
       ...compareFrames(passes[i - 1]?.result || original, pass.result),
-      pass, category, title, chip, direction, measured, i, disposition: 'skipped'
+      pass, category, title, chip, measured, i, disposition: 'skipped'
     };
   });
   const groups = [];
@@ -346,15 +354,7 @@ export function buildTimeline(original, passes, hasReference) {
       continue;
     }
     if (item.score < MIN_SCORE) continue;
-    const last = groups.at(-1);
-    if (last && last.category === item.category && item.i - last.end.i <= 2) {
-      last.end = item;
-      if (item.score > last.hero.score) last.hero = item;
-      last.items.push(item);
-      last.score += item.score;
-    } else groups.push({
-      category: item.category, end: item, hero: item, score: item.score, items: [item]
-    });
+    groupChapter(groups, item);
   }
   const chosen = groups.sort((a, b) => b.score - a.score).slice(0, 5);
   const minimumBeats = group => Math.min(6, Math.max(2, 1 + Math.ceil(group.items.flatMap(item => pacingRows(item.pass)).length / 6)));
@@ -372,6 +372,7 @@ export function buildTimeline(original, passes, hasReference) {
   cue('hook', 3, 'photo');
   cue('rewind', 1, 'photo');
   cue('camera', 1, 'program', { before: original, after: rewindResult,
+    passLabel: rewindPasses.length ? passLabel(rewindPasses[0]) : 'before',
     rows: rewindPasses.length ? compactRows(rewindPasses, rewindPasses[0], null, true) : [] });
   let previous = rewindResult;
   let payoffBeats = 4;
@@ -381,7 +382,7 @@ export function buildTimeline(original, passes, hasReference) {
     const chapter = {
       pass: hero.pass, before: previous, after: end.pass.result, title: hero.title,
       chip: hero.chip, color: ACCENTS[group.category]||ACCENTS.subject,
-      rows: compactRows([hero.pass], hero.pass, hero.direction), number: index
+      rows: compactRows([hero.pass], hero.pass, colorShift(hero.measured)), number: index
     };
     cue('program', 1, 'program', chapter);
     cue('answer', 2, 'photo', chapter);
@@ -390,10 +391,10 @@ export function buildTimeline(original, passes, hasReference) {
     previous = end.pass.result;
   });
   const skipped = scores.filter(item => item.disposition === 'skipped').map(item => item.title);
-  const also = [...new Set(skipped)];
+  const also = skipped;
   cue('payoff', payoffBeats, 'photo', { also });
   cue('loop', 2, 'photo');
-  return { schedule, scores, duration: cursor * BEAT, chapterCount: chosen.length, hasReference, coverTitle: measuredCover(chosen) };
+  return { schedule, scores, duration: cursor * BEAT, chapterCount: chosen.length, hasReference, description, coverTitle: description || pipelineHeadline(passes.length) };
 }
 
 function wholeFrameMask(pass) {

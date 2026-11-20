@@ -8,6 +8,8 @@ import {
   createHash
 } from 'node:crypto';
 import assert from 'node:assert/strict';
+import { cameraLine, buildTutorialTimeline } from '../public/reel/tutorial.js';
+
 import {
   parseARW
 } from '../public/formats/arw.js';
@@ -30,6 +32,18 @@ import { scoreAlignment, warpPosition } from '../public/render/mask-alignment.js
 import {
   readdir
 } from 'node:fs/promises';
+const cameraXML='<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:e="http://ns.adobe.com/exif/1.0/" crs:Version="16" e:FocalLength="350/10" e:FNumber="63/10"><e:ISOSpeedRatings><rdf:Seq><rdf:li>400</rdf:li></rdf:Seq></e:ISOSpeedRatings></rdf:Description></rdf:RDF></x:xmpmeta>';
+assert.equal(cameraLine(parseXMP(cameraXML).camera,[{tags:{33434:1/400,34855:800}}]),'35mm · f/6.3 · 1/400s · ISO 400');
+assert.equal(cameraLine({},[]),'');
+const scores=Array.from({length:10},(_,i)=>({pass:{index:i,result:i},score:i,title:'PASS '+i,chip:'Masking'}));
+const tutorial=buildTutorialTimeline({original:-1,timeline:{scores}}, {globals:{}}, {ifds:[]});
+assert.deepEqual(tutorial.steps.map(s=>s.number),[3,4,5,6,7,8,9]);
+for(const s of tutorial.steps){
+  const index=tutorial.schedule.findIndex(c=>c.scene==='step' && c.number===s.number);
+  assert.equal(tutorial.schedule[index-1].scene,'lift');
+  assert.equal(tutorial.schedule[index].before,s.number-1);
+}
+
 const directory=process.argv[2];
 if(!directory)throw new Error('Usage: node test/selftest.mjs <DSC03049 sample directory>');
 const names=await readdir(directory),name=names.find(n=>/\.arw$/i.test(n));

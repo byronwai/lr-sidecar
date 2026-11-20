@@ -10,6 +10,8 @@ import {
 } from 'node:path';
 import assert from 'node:assert/strict';
 import { regressionChecks } from './regressions.mjs';
+import { auditText } from './text-audit.mjs';
+import { auditTutorial } from './tutorial-audit.mjs';
 const directory=process.argv[2];
 if(!directory)throw new Error('Usage: node test/browser.mjs <sample-directory> [--full] [--screenshots]');
 const screenshots=process.argv.includes('--screenshots');
@@ -135,6 +137,47 @@ const compiled=await evaluate('window.lrc.compile().then(output=>({ok:true,outpu
 console.log('COMPILE',compiled);
 assert.equal(compiled.ok,true);
 await regressionChecks(evaluate,call);
+await evaluate("document.querySelector('#mode-tutorial').click()");
+const tutorial = await evaluate('('+auditTutorial.toString()+')()');
+assert.deepEqual(tutorial.mismatch,[]);
+assert.equal(tutorial.unsafe+tutorial.rectDeviation+tutorial.endOverlays,0);
+assert.ok(tutorial.maxRows<=4 && tutorial.min.panel>=70);
+assert.ok(tutorial.min.value>=30 && tutorial.min.kicker>=28 && tutorial.min.label>=28);
+assert.ok(tutorial.steps.length<=7 && tutorial.steps.every(s=>s.score>=.6 && s.dwell===2));
+await evaluate("document.querySelector('[name=reel-mode][value=teaser]').click()");
+for(const mode of ['teaser','tutorial']){
+  await evaluate(`document.querySelector('[value="${mode}"]').click()`);
+  const initial=await evaluate("document.querySelector('#reel-description').value");
+  assert.equal(initial,'');
+  for(const description of ['Night, but redder.','']){
+    await evaluate(`(()=>{const el=document.querySelector('#reel-description');el.value=${JSON.stringify(description)};el.dispatchEvent(new Event('input'))})()`);
+    const audit=await evaluate('('+auditText.toString()+')()');
+    assert.deepEqual(audit.other,[]);
+    assert.deepEqual(audit.valueErrors,[]);
+    if(mode==='teaser'&&description){
+      const copied=await evaluate(`(async()=>{
+        const {caption}=await lrcReel.export();
+        const dialog=document.querySelector('#caption-editor'),clipboard=navigator.clipboard;
+        const write=clipboard.writeText;
+        let text;
+        clipboard.writeText=async v=>{text=v};
+        try {
+          document.querySelector('#copy-caption').click();
+          const original=text===caption;
+          dialog.querySelector('textarea').value+=' Edited';
+          dialog.querySelector('[data-copy]').click();
+          await Promise.resolve();
+          return [caption.split('\\n')[0],original,text===caption+' Edited' && !dialog.open];
+        } finally {clipboard.writeText=write;}
+      })()`);
+      assert.deepEqual(copied,[description,true,true]);
+    }
+    const title=description || '6 passes → 1 frame';
+    assert.ok(audit.strings.includes(title),'Cover text reaches the renderer');
+  }
+}
+await evaluate("document.querySelector('[value=teaser]').click()");
+console.log('Tutorial schedule, XML controls and frame bounds pass');
 const measuredTitles=await evaluate(`(async()=>{
   const {buildTimeline}=await import('./reel/timeline.js');
   const canvas=color=>{const c=new OffscreenCanvas(64,64);const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,64,64);return c};
@@ -152,14 +195,15 @@ const measuredTitles=await evaluate(`(async()=>{
     globalRows:global.schedule.find(c=>c.scene==='camera').rows,
     emptyCover:buildTimeline(before,[],false).coverTitle};
 })()`);
-assert.equal(measuredTitles.title,'Background → blue');
+assert.equal(measuredTitles.title,'PASS 0 · Background');
 assert.ok(Math.abs(measuredTitles.coverage-.5)<.001,'Resampled half-mask coverage');
 assert.ok(measuredTitles.deltaB<0);
-assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').value,-.1);
-assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').decimals,2);
+// Local sliders show in Lightroom's units: LocalHighlights2012 -0.102804 is -10 on the slider.
+assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').value,-10);
+assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').decimals,0);
 assert.equal(measuredTitles.globalRows.find(r=>r.label==='Contrast').value,13);
 assert.equal(measuredTitles.globalRows.find(r=>r.label==='Exposure').value,.12);
-assert.equal(measuredTitles.emptyCover,'One frame. Many edits.');
+assert.equal(measuredTitles.emptyCover,'0 passes → 1 frame');
 console.log('MEASURED titles / mask weighting / rounded values pass');
 assert.equal(await evaluate("lrc.state.logs.some(s=>s.includes('AI raster alignment: off='))"),true,'Compile log must include both alignment scores');
 assert.ok(compiled.output.width>0);

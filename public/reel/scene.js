@@ -33,7 +33,7 @@ const ease = t => {
 const arrive = (time, beat, travel = BEAT) => ease((time - beat + travel) / travel);
 const inner = time => (time % BEAT) / BEAT;
 
-function photoRect(image) {
+export function photoRect(image) {
   const width = PHOTO_WIDTH;
   const height = Math.min(1776, width * image.height / image.width);
   const w = Math.min(width, height * image.width / image.height);
@@ -44,7 +44,7 @@ function photo(ctx, image, rect) {
   ctx.drawImage(image, rect.x, rect.y, rect.w, rect.h);
 }
 
-function photoSplit(ctx, after, before, rect, left, accent) {
+export function photoSplit(ctx, after, before, rect, left, accent) {
   photo(ctx, after, rect);
   if (left <= 0) return;
   const x = rect.x + left * rect.w;
@@ -71,7 +71,7 @@ function photoSplit(ctx, after, before, rect, left, accent) {
   ctx.restore();
 }
 
-function maskOverlay(mask, bakedColor, accent, rect) {
+export function maskOverlay(mask, bakedColor, accent, rect, minCoverage = 0.01) {
   if (!mask) return null;
   const w = Math.round(rect.w);
   const h = Math.round(rect.h);
@@ -89,7 +89,7 @@ function maskOverlay(mask, bakedColor, accent, rect) {
     if (value >= 0.5) covered++;
   }
   const coverage = covered / weights.length;
-  if (coverage < 0.01) return { coverage, canvas: null };
+  if (coverage < minCoverage) return { coverage, canvas: null };
   const rgb = color(accent);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -142,26 +142,12 @@ function rowText(row) {
 // typewriter reveals text; numbers never count through fictitious edit values.
 const panelTyping = since => ease((since - BEAT / 2) / (BEAT / 2 - 3 / FPS));
 
-function wrap(line) {
-  const result = [];
-  while (Array.from(line).length > 28) {
-    const chars = Array.from(line);
-    const head = chars.slice(0, 28).join('');
-    const space = head.lastIndexOf(' ');
-    const cut = space > 12 ? space : head.length;
-    result.push(line.slice(0, cut).trimEnd());
-    line = line.slice(cut).trimStart();
-  }
-  result.push(line);
-  return result;
-}
-
 // Lay out the cover headline: sentence breaks become lines with weight
 // contrast; a single sentence wraps by measured width, shrinking only if a
 // line still overflows. Never squeeze glyphs with fillText's maxWidth.
-function headlineLayout(ctx, text) {
+export function headlineLayout(ctx, text) {
   const sentences = text.split(/(?<=[.!?。])\s+/).filter(Boolean);
-  const contrast = sentences.length > 1;
+  const contrast = sentences.length === 2;
   for (let size = DISPLAY.size; size >= DISPLAY.min; size -= 4) {
     const fontFor = i => `${DISPLAY.weights[contrast ? Math.min(i, 1) : 0]} ${size}px ${DISPLAY.family}`;
     ctx.letterSpacing = `${(DISPLAY.tracking * size).toFixed(2)}px`;
@@ -169,15 +155,19 @@ function headlineLayout(ctx, text) {
       ctx.font = fontFor(i);
       return ctx.measureText(line).width;
     };
-    let lines;
-    if (contrast) lines = sentences.slice(0, 2);
-    else {
-      lines = [];
-      for (const word of text.split(/\s+/)) {
-        const next = lines.length ? `${lines.at(-1)} ${word}` : word;
-        if (lines.length && measure(next, 0) <= DISPLAY.maxWidth) lines[lines.length - 1] = next;
-        else lines.push(word);
+    const lines=[];
+    for(const sentence of contrast?sentences:[text]){
+      let line='';
+      for(const word of sentence.split(/\s+/)){
+        const next=line?line+' '+word:word;
+        if(line && measure(next,lines.length)>DISPLAY.maxWidth){lines.push(line);line='';}
+        if(line)line+=' ';
+        for(const ch of word){
+          if(line && measure(line+ch,lines.length)>DISPLAY.maxWidth){lines.push(line);line='';}
+          line+=ch;
+        }
       }
+      if(line)lines.push(line);
     }
     ctx.letterSpacing = '0px';
     const fits = lines.length <= 2 && lines.every((line, i) => {
@@ -187,7 +177,7 @@ function headlineLayout(ctx, text) {
       return ok;
     });
     if (fits || size - 4 < DISPLAY.min) {
-      return lines.slice(0, 2).map((line, i) => ({
+      return lines.map((line, i) => ({
         text: line, font: fontFor(i), size,
         color: DISPLAY.colors[contrast ? Math.min(i, 1) : 0],
         tracking: `${(DISPLAY.tracking * size).toFixed(2)}px`
@@ -253,23 +243,23 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         before = original;
         after = final;
         title = coverTitle;
-        topic = 'xmp · the edit';
+        topic = 'LIGHTROOM';
         shortPanel = true;
         break;
       case 'rewind':
         before = final;
         after = original;
         split = Math.min(1 - 1 / PHOTO_WIDTH, 1 - progress);
-        title = 'Straight out of camera';
-        topic = 'xmp · rewind';
+        title = 'before';
+        topic = 'before';
         shortPanel = true;
         break;
       case 'camera':
         before = cue.before;
         after = cue.after;
         split = cue.rows.length ? Math.min(1 - 1 / PHOTO_WIDTH, 1 - progress) : 0;
-        title = cue.rows.length ? 'Set the base exposure' : 'Straight out of camera';
-        topic = 'xmp · base settings';
+        title = cue.passLabel || 'before';
+        topic = 'Basic';
         rows = cue.rows;
         typing = panelTyping(since);
         shortPanel = !rows.length || since < BEAT/2;
@@ -283,7 +273,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         // at rest. Retain the existing wipe direction and half-second speed.
         split = cue.scene === 'answer' ? Math.min(1 - 1 / PHOTO_WIDTH, 1 - arrive(t, cue.t0 + BEAT)) : 0;
         title = cue.title;
-        topic = 'xmp · ' + cue.chip;
+        topic = cue.chip;
         rows = cue.rows;
         typing = cue.scene === 'program' ? panelTyping(since) : 1;
         shortPanel = cue.scene === 'program' && since < BEAT/2;
@@ -294,9 +284,9 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         const sweepStart = cue.t0 + BEAT;
         split = t >= sweepStart && t < sweepStart + BEAT * 2
           ? Math.max(2 / PHOTO_WIDTH, 0.36 * (arrive(t, sweepStart + BEAT) - arrive(t, sweepStart + BEAT * 2))) : 0;
-        title = 'The finished frame';
-        topic = reference ? 'Lightroom finish' : 'Compiled finish';
-        rows = cue.also.length ? [{ text: 'Also in the edit' }, ...cue.also.slice(0, 3).map(text => ({ text }))] : [];
+        title = 'after';
+        topic = 'after';
+        rows = cue.also.length ? [{ text: 'PASS' }, ...cue.also.slice(0, 3).map(text => ({ text }))] : [];
         shortPanel = !rows.length;
         break;
       }
@@ -304,7 +294,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         before = original;
         after = final;
         title = coverTitle;
-        topic = 'xmp · the edit';
+        topic = 'LIGHTROOM';
         shortPanel = true;
         break;
     }
@@ -330,23 +320,24 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
 
     // Title scrim and TUI post effects are composited as separate chrome.
     const cover = cue.scene === 'hook' || cue.scene === 'loop';
-    const headline = cover ? headlineLayout(ctx, title) : null;
+    const headline = cover ? coverLines : null;
     // First baseline sits one cap-height below the chip; each extra line adds one leading step.
     const firstBaseline = cover ? 300 + Math.round(headline[0].size * 0.73) : 366;
     const lineStep = cover ? Math.round(headline[0].size * DISPLAY.leading) : 0;
-    // Cover scrim holds full strength through the last line, then fades below it.
-    const scrimBottom = cover ? firstBaseline + lineStep * (headline.length - 1) + 150 : 425;
+    // Keep the approved two-line scrim geometry independent of the editor’s text.
+    const scrimBaseline = 300 + Math.round(DISPLAY.size * .73) + DISPLAY.size;
+    const scrimBottom = cover ? scrimBaseline + 150 : 425;
     const scrim = ctx.createLinearGradient(0, 235, 0, scrimBottom);
     scrim.addColorStop(0, '#04070f00');
     if (cover) {
-      const hold = (firstBaseline + lineStep * (headline.length - 1) + 30 - 235) / (scrimBottom - 235);
+      const hold = (scrimBaseline + 30 - 235) / (scrimBottom - 235);
       scrim.addColorStop(0.18, '#04070fa6');
       scrim.addColorStop(hold, '#04070fa6');
     } else scrim.addColorStop(0.5, '#04070f8c');
     scrim.addColorStop(1, '#04070f00');
     ctx.fillStyle = scrim;
     ctx.fillRect(rect.x, 235, rect.w, scrimBottom - 235);
-    setText(ctx, '/ framebuffer', 76, 281, CHIP, accent);
+    setText(ctx, cue.chip || 'LIGHTROOM', 76, 281, CHIP, accent);
     if (cover) {
       headline.forEach((line, i) => {
         ctx.letterSpacing = line.tracking;
@@ -369,7 +360,7 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     brackets(tui, x, y, w, h, accent);
     tui.fillStyle = '#0b1120';
     tui.fillRect(x + 15, y - 20, 580, 40);
-    setText(tui, wrap('/ ' + topic)[0], x + 26, y + 9, CHIP, accent, w-145);
+    setText(tui, topic, x + 26, y + 9, CHIP, accent, w-145);
     // One logical row per line; fit long mask expressions to the panel width.
     const terminalRows = rows.map(rowText);
     metrics.panelRows = [];
