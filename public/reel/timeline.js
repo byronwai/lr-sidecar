@@ -1,4 +1,5 @@
 import {displayValue} from './text.js';
+import {hasCropMotion} from './crop.js';
 import { maskExpression } from '../anim/summary.js';
 
 export const WIDTH = 1080;
@@ -331,7 +332,7 @@ export function groupChapter(groups, item) {
   } else groups.push({ category: item.category, end: item, hero: item, score: item.score, items: [item] });
 }
 
-export function buildTimeline(original, passes, hasReference, description = '') {
+export function buildTimeline(original, passes, hasReference, description = '', geometry = passes.find(p=>p.kind==='globals')?.globals) {
   const scores = passes.map((pass, i) => {
     const before = passes[i - 1]?.result || original;
     const measured = measureChange(before, pass.result, pass);
@@ -372,6 +373,7 @@ export function buildTimeline(original, passes, hasReference, description = '') 
   }
   cue('hook', 3, 'photo');
   cue('rewind', 1, 'photo');
+  if(hasCropMotion(geometry))cue('crop',2,'photo');
   cue('camera', 1, 'program', { before: original, after: rewindResult,
     passLabel: rewindPasses.length ? passLabel(rewindPasses[0]) : 'before',
     rows: rewindPasses.length ? compactRows(rewindPasses, rewindPasses[0], null, true) : [] });

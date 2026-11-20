@@ -98,6 +98,23 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 - The four Teaser schedules matched the pre-change baselines. Suppressing glyphs and their shadows on both canvas surfaces produced identical full-resolution RGBA hashes for all 432 sampled comparisons across the two description settings. Each comparison used a fresh page, as did the baseline.
 - The sample selftest and browser integration suite passed, including cover selection, editable caption copying, pass order and readability regressions.
 
+## Crop and straighten motion
+
+- Both Reel modes show a one-second transition from the original framing into
+  the saved XMP crop and rotation, before the slice walkthrough. The motion
+  eases to rest, with a short settled hold. The photo viewport stays fixed and
+  all subsequent edit steps stay still. Identity and disabled crops add no scene.
+- The animation uses the renderer's crop matrix, including off-centre crops,
+  rather than a sample-specific angle. Synthetic −15°, 0° and +15° cases have
+  pixel-exact source and final endpoints and monotone progress.
+- DSC03049 from `D:\anzu` produced an 11 s Teaser and 16 s Tutorial with the
+  transition; a Tutorial MP4 and five-frame motion sheet were inspected/exported.
+  Uncropped DSC09552 retained its 10.5 s and 18.5 s schedules.
+- The Node selftest and full browser suite passed, including unchanged photo
+  bounds, stationary holds, slice layout, optional-JPG checks and H.264 loop
+  endpoints. The Tutorial's final comparison now uses the cropped original so
+  it does not jump back to uncropped framing.
+
 ## Optional edited JPG
 
 - The Reel section offers Add / Replace / Remove for an optional edited JPG.

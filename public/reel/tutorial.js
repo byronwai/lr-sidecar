@@ -1,5 +1,6 @@
 import { MIN_SCORE, maskType, valueCandidates, uiValue } from './timeline.js';
 import {displayValue} from './text.js';
+import {hasCropMotion} from './crop.js';
 import { bands } from '../render/passes.js';
 
 const wheelKeys = [
@@ -85,6 +86,7 @@ export function buildTutorialTimeline({original,compiled,reference,timeline},set
   const chosen=new Set(all.filter(s=>s.score>=MIN_SCORE).sort((a,b)=>b.score-a.score).slice(0,7));
   const steps=all.filter(s=>chosen.has(s)),schedule=[];
   const final=reference||compiled;
+  const cropMotion=hasCropMotion(settings.globals);
   let duration=0;
   function cue(scene,seconds,fields){
     schedule.push({scene,t0:duration,t1:duration+seconds,...fields});
@@ -92,7 +94,7 @@ export function buildTutorialTimeline({original,compiled,reference,timeline},set
   }
   const density=steps.map(s=>s.drawnRows.length+s.curves.length+s.wheels.length+Number(s.mixer));
   const dwell=density.map(n=>n>=5?2.5:n<=2?1.5:2);
-  const total=()=>5+steps.length*.5+dwell.reduce((a,b)=>a+b,0);
+  const total=()=>5+Number(cropMotion)+steps.length*.5+dwell.reduce((a,b)=>a+b,0);
   while(total()>22){
     const order=dwell.map((seconds,i)=>({i,seconds,n:density[i]}))
       .filter(v=>v.seconds>1.5).sort((a,b)=>b.seconds-a.seconds||a.n-b.n);
@@ -104,13 +106,14 @@ export function buildTutorialTimeline({original,compiled,reference,timeline},set
   for(let beat=0;beat<extraBeats;beat++)holds[readingOrder[beat%4]]+=.5;
   cue('hook',holds.hook,{after:final});
   cue('source',holds.source,{after:cameraOriginal});
+  if(cropMotion)cue('crop',1,{before:cameraOriginal,after:original});
   for(const [i,s] of steps.entries()){
     const before=all[all.indexOf(s)-1]?.after||original;
     cue('lift',.5,{...s,after:before});
     cue('step',dwell[i],{...s,before});
   }
-  cue('before',holds.before,{after:cameraOriginal});
-  cue('after',holds.after,{before:cameraOriginal,after:final});
+  cue('before',holds.before,{after:cropMotion?original:cameraOriginal});
+  cue('after',holds.after,{before:cropMotion?original:cameraOriginal,after:final});
   const g=settings.globals;
   const crop=g.HasCrop?['CropAngle','CropLeft','CropTop','CropRight','CropBottom'].filter(k=>g[k]!=null).map(k=>k+' '+String(g[k]).replace(/^-/,'−')):[];
   return {mode:'tutorial',schedule,steps,all,duration,description:timeline.description,coverTitle:timeline.coverTitle,

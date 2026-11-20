@@ -4,6 +4,7 @@ import { bands } from '../render/passes.js';
 import {labelLines,displayValue} from './text.js';
 import {isSubject,subjectFaces,subjectMatte} from './subject.js';
 import { badge } from './tutorial.js';
+import {drawCropTransition} from './crop.js';
 import { tutorialDeck, intersectionArea } from './slices.js';
 
 const SAFE={x:60,y:250,w:900,h:1230};
@@ -279,6 +280,10 @@ export function createTutorialScene(ctx,data) {
     const s=t.schedule.find(c=>time<c.t1),since=time-s.t0;
     const m={scene:s.scene,photoRect:rect,text:[],rows:[],slices:[],opacity:0,subjectOverlap:0};
     ctx.fillStyle=NAVY;ctx.fillRect(0,0,WIDTH,HEIGHT);
+    if(s.scene==='crop'){
+      m.crop=drawCropTransition(ctx,sources,data.original,rect,since/Math.max(.01,s.t1-s.t0-.1));
+      return m;
+    }
     const split=s.before?1-smooth(since/(s.scene==='after'?.85:1.15)):0;
     photoSplit(ctx,s.after,s.before,rect,split,s.color||BLUE,guides);
     if(guides!==ctx && split>0 && split<1){

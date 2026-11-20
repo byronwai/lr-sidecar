@@ -5,6 +5,7 @@ import { createScene, loadReelFonts } from './reel/scene.js';
 import {isSubject,subjectFaces} from './reel/subject.js';
 import { buildTutorialTimeline, tutorialCaption } from './reel/tutorial.js';
 import { createTutorialScene } from './reel/tutorial-scene.js';
+import {hasCropMotion} from './reel/crop.js';
 
 const description = document.querySelector('#reel-description');
 const modes = document.querySelector('#reel-modes');
@@ -78,7 +79,7 @@ function prepareTeaser() {
     const { impact, coverage } = compareFrames(compiled, reference);
     log(`Compiled vs Lightroom JPG · mean |ΔRGB| ${impact.toFixed(3)}/255 · ${(coverage * 100).toFixed(2)}% above 4 · scaled to common frame`);
   }
-  const timeline = buildTimeline(original, reelPasses(), !!reference, description.value.trim());
+  const timeline = buildTimeline(original, reelPasses(), !!reference, description.value.trim(),state.settings.globals);
   log('Reel impact · mean |ΔRGB| × √coverage · threshold 0.600');
   for (const { pass, title, impact, coverage, score, disposition, measured: m } of timeline.scores) {
     log(`  ${pass.index} ${title} · Δ ${impact.toFixed(3)} · ${(100 * coverage).toFixed(2)}% · score ${score.toFixed(3)} · ${disposition} · OKLab mask ${(100*m.maskCoverage).toFixed(2)}% · L ${m.before[0].toFixed(4)}→${m.after[0].toFixed(4)} (Δ${m.deltaL.toFixed(4)}) · C ${m.chromaBefore.toFixed(4)}→${m.chromaAfter.toFixed(4)} (Δ${m.deltaC.toFixed(4)}) · mean Δh ${m.meanHueShift.toFixed(2)}° · mean-color h ${m.hueBefore.toFixed(2)}→${m.hueAfter.toFixed(2)}°`);
@@ -105,7 +106,7 @@ async function selectedData() {
   const base = prepareTeaser();
   if(!base)return base;
   const {state,tutorialSources}=window.lrc;
-  if(tutorialSelected()||state.settings.corrections.some(c=>c.masks.some(isSubject))){
+  if(tutorialSelected()||hasCropMotion(state.settings.globals)||state.settings.corrections.some(c=>c.masks.some(isSubject))){
     base.sources??=await (base.sourceRequest??=tutorialSources().catch(e=>{delete base.sourceRequest;throw e;}));
     base.subjectFaces??=subjectFaces(base.sources.masks,state.settings);
   }

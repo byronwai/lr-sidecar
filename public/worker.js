@@ -210,6 +210,10 @@ async function tutorialSources({job, groups, rasterEdges, rasterWarp}) {
   ctx.fillStyle='#04070f';ctx.fillRect(0,0,camera.width,camera.height);
   ctx.drawImage(oriented,(camera.width-w)/2,(camera.height-h)/2,w,h);
   const original=camera.transferToImageBitmap();
+  const cropMotion=settings.globals.HasCrop?{
+    image:await createImageBitmap(oriented),width:finished.width,height:finished.height,
+    matrix:[crop.a,crop.b,crop.c,crop.d,crop.e,crop.f]
+  }:null;
   sensor.close();
   const masks = {};
   const lens = rasterWarp==='warp' || rasterWarp==='auto' && alignmentCache?.result.apply ? settings.lensDistort : null;
@@ -247,8 +251,8 @@ async function tutorialSources({job, groups, rasterEdges, rasterWarp}) {
       }
     } finally {if(prior)pipeline.release(prior);}
   }
-  send('tutorial',{job,original,masks,transform:[transform.a,transform.b,transform.c,transform.d,transform.e,transform.f]},
-    [original,...Object.values(masks)]);
+  send('tutorial',{job,original,cropMotion,masks,transform:[transform.a,transform.b,transform.c,transform.d,transform.e,transform.f]},
+    [original,...(cropMotion?[cropMotion.image]:[]),...Object.values(masks)]);
 }
 
 async function compile(message){

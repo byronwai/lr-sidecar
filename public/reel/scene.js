@@ -2,6 +2,7 @@ import { BEAT, FPS, HEIGHT, PHOTO_WIDTH, WIDTH } from './timeline.js';
 import { displayValue, graphemes, ellipsize } from './text.js';
 import {isSubject,subjectMatte} from './subject.js';
 import { createSlices } from './slices.js';
+import {drawCropTransition} from './crop.js';
 
 const INK = '#edf3ff';
 const NAVY = '#04070f';
@@ -196,7 +197,7 @@ export function headlineLayout(ctx, text) {
   }
 }
 
-export function createScene(output, { original, compiled, reference, timeline, subjectFaces=[] }) {
+export function createScene(output, { original, compiled, reference, timeline, subjectFaces=[],sources }) {
   const { schedule, duration, chapterCount } = timeline;
   const final = reference || compiled;
   // One geometry for every source, mask, wipe and frame, for the entire Reel.
@@ -277,12 +278,16 @@ export function createScene(output, { original, compiled, reference, timeline, s
         break;
       case 'rewind':
         before = final;
-        after = original;
+        after = schedule.some(c=>c.scene==='crop')?sources.original:original;
         split = Math.min(1 - 1 / PHOTO_WIDTH, 1 - progress);
         title = 'before';
         topic = 'before';
         shortPanel = true;
         break;
+      case 'crop':
+        metrics.crop=drawCropTransition(output,sources,original,rect,since/Math.max(.01,cue.t1-cue.t0-.1));
+        metrics.photoWidth=rect.w;metrics.split=0;metrics.slices=[];
+        return metrics;
       case 'camera':
         before = cue.before;
         after = cue.after;

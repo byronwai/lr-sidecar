@@ -11,6 +11,7 @@ import {
 import assert from 'node:assert/strict';
 import { regressionChecks } from './regressions.mjs';
 import { referenceRegressionChecks } from './reference-regressions.mjs';
+import { cropRegressionChecks } from './crop-regressions.mjs';
 import { auditText } from './text-audit.mjs';
 import { auditTutorial } from './tutorial-audit.mjs';
 import { fileURLToPath } from 'node:url';
@@ -141,6 +142,7 @@ const compiled=await evaluate('window.lrc.compile().then(output=>({ok:true,outpu
 console.log('COMPILE',compiled);
 assert.equal(compiled.ok,true);
 await referenceRegressionChecks(evaluate);
+await cropRegressionChecks(evaluate);
 await regressionChecks(evaluate,call);
 await evaluate("document.querySelector('#mode-tutorial').click()");
 const tutorial = await evaluate('('+auditTutorial.toString()+')()');
