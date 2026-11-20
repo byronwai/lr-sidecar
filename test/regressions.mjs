@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {colorRegressionChecks} from './color-regressions.mjs';
 export async function fanRegressionChecks(evaluate,call){
   const reduced=await evaluate("matchMedia('(prefers-reduced-motion:reduce)').matches");
   const media=value=>call('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value}]});
@@ -38,6 +39,7 @@ export async function fanRegressionChecks(evaluate,call){
   return {passes:packed.length,positionError,order:true,reducedMotion:true};
 }
 export async function regressionChecks(evaluate,call){
+  await colorRegressionChecks(evaluate);
   const slider=await evaluate(`(()=>{const range=document.querySelector('#compare');return [10,35,50,80].map(value=>{
     range.value=value;range.dispatchEvent(new Event('input',{bubbles:true}));
     const c=document.querySelector('#compare-before'),r=c.getBoundingClientRect();

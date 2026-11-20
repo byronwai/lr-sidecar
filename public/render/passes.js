@@ -58,7 +58,13 @@ uniform vec2 gradeMix;
 vec3 grade(vec3 c,vec4 g,float w){
   // Work on linear chroma, preserve Y, and keep the tint proportional to light.
   vec3 source=linearize(c),tint=linearize(rgb(vec3(g.x,1.,1.)));
-  vec3 target=tint*lum(source)/max(lum(tint),1e-5);
+  // Saturated blue has very little luminance. Scaling it to a bright pixel's
+  // Y can put blue far above display white, clipping detail before later masks.
+  // Fit the tint's chroma at that Y first; white has no room for added chroma.
+  float y=clamp(lum(source),0.,1.);
+  vec3 chroma=tint*y/max(lum(tint),1e-5)-vec3(y);
+  vec3 room=mix(vec3(y)/max(-chroma,vec3(1e-5)),vec3(1.-y)/max(chroma,vec3(1e-5)),step(vec3(0),chroma));
+  vec3 target=vec3(y)+chroma*min(1.,min(room.r,min(room.g,room.b)));
   return encode(mix(source,target,clamp(g.y*w,0.,1.))*exp2(g.z*w));
 }
 void main(){vec3 c=adjust(texture(image,uv).rgb);vec3 h=hsv(c);vec3 delta=vec3(0);float total=0.;float centers[8]=float[8](0.,.08333,.16667,.33333,.5,.66667,.75,.83333);

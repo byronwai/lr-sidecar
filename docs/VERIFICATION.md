@@ -105,6 +105,43 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 
 ## Registered colour and Reel verification
 
+### Highlight grading — 20 November 2026
+
+The three ARW/XMP/ACR sets and matching Lightroom JPGs in `D:\anzu` were rendered
+through the production compiler. Comparisons use 768 px long-edge sRGB captures,
+D65 Lab ΔE2000, and one luminance-edge registration per sample shared by both
+versions. The reference JPG is used only for comparison, never to tune the render
+at runtime. These results are separate from the earlier sample set below.
+
+| Sample | Mean RGB error, 0–255 | Mean ΔE2000 | p95 ΔE2000 |
+|---|---:|---:|---:|
+| DSC03049 | 14.228 → 14.228 | 8.038 → 8.038 | 17.089 → 17.089 |
+| DSC06771 | 8.054 → 8.054 | 4.581 → 4.581 | 12.399 → 12.399 |
+| DSC09552 | 15.560 → 11.432 | 9.725 → 5.195 | 18.540 → 9.751 |
+
+- Global grading now fits tint chroma within sRGB at the source luminance before
+  blending. Previously, normalizing saturated blue to highlight luminance pushed
+  the blue channel far above white. On DSC09552, the global-pass fraction with
+  any channel at least 254/255 fell from 52.95% to 0.18%.
+- DSC09552's mean ΔE2000 improved in the subject, background, sky and clothes
+  regions. RGB error is not uniformly lower: subject RGB increased from 15.590
+  to 15.815 and clothes from 12.554 to 13.908, while their mean ΔE2000 fell from
+  8.418 to 6.823 and 7.290 to 6.274 respectively. Clipped shirt detail and camera
+  profile differences remain; this is not an exact Lightroom reconstruction.
+- Synthetic GPU checks cover six tint hues, neutral and white preservation,
+  luminance preservation, empty masks, and unchanged exposure behavior. All
+  three samples compiled and passed 643 Tutorial control/geometry checks; both
+  Reel renderers ran with stationary photos.
+- The Node sample selftest and full browser suite passed against `D:\anzu`,
+  including H.264 export, slice layout, mobile layout and corrupt-file recovery.
+- [Lightcraft's tone pipeline](https://github.com/storytold/lightcraft/blob/main/crates/pipeline/src/tone.rs)
+  and [colour operations](https://github.com/storytold/lightcraft/blob/main/crates/pipeline/src/colorops.rs)
+  were reviewed as architectural references. No source code was copied. Our
+  gamut fitting uses the same linear-luminance construction already present in
+  the local Color swatch shader.
+
+### Earlier sample set
+
 | Sample | Whole-frame mean RGB error, 0–255 | Mean ΔE2000 |
 |---|---:|---:|
 | Portrait sample | 15.90 → 7.91 | 8.22 → 4.50 |
