@@ -27,7 +27,7 @@ import {
 } from '../public/formats/tiff.js';
 import { sonyDecrypt, readSonyWhiteBalance, inferIlluminant, relativeWhiteBalance } from '../public/formats/wb.js';
 import { globalSummary, correctionSummary } from '../public/anim/summary.js';
-import { adjustmentUniforms } from '../public/render/passes.js';
+import { adjustmentUniforms,curveLUT } from '../public/render/passes.js';
 import { scoreAlignment, warpPosition } from '../public/render/mask-alignment.js';
 import {
   readdir
@@ -161,6 +161,14 @@ const luminance = xmp.corrections.flatMap(c => c.masks).find(m => m.CorrectionRa
 assert.ok(luminance?.CorrectionRangeMask.LumRange, 'Self-closing range parameters must survive parsing');
 assert.ok(globalSummary(xmp.globals).some(line => line.startsWith('HSL sat:')));
 assert.ok(xmp.corrections.map(correctionSummary).some(line => line.includes('luma range')));
+const neutral=curveLUT({MainCurve:['0,0','255,255']},true);
+assert.equal(neutral.mode,0,'Neutral curves bypass the quantized LUT');
+const master=curveLUT({ToneCurvePV2012:['0,32','255,255']});
+assert.equal(master.mode,1);
+assert.deepEqual([...master.data.slice(0,4)],[0,0,0,32],'The master curve has a separate lookup');
+const channel=curveLUT({RedCurve:['0,64','255,255']},true);
+assert.equal(channel.mode,2);
+assert.deepEqual([...channel.data.slice(0,4)],[64,0,0,0]);
 assert.equal(adjustmentUniforms({LocalExposure2012:1},true).color[0],4);
 assert.equal(adjustmentUniforms({Exposure2012:-0.5}).color[0],-0.5);
 assert.deepEqual(adjustmentUniforms({LocalToningHue:230,LocalToningSaturation:.345},true).localToning,[230/360,.345]);

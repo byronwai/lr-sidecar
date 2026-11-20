@@ -1,4 +1,6 @@
 import { BEAT, FPS, HEIGHT, PHOTO_WIDTH, WIDTH } from './timeline.js';
+import { displayValue, graphemes, ellipsize } from './text.js';
+import {isSubject,subjectMatte} from './subject.js';
 import { createSlices } from './slices.js';
 
 const INK = '#edf3ff';
@@ -44,7 +46,7 @@ function photo(ctx, image, rect) {
   ctx.drawImage(image, rect.x, rect.y, rect.w, rect.h);
 }
 
-export function photoSplit(ctx, after, before, rect, left, accent) {
+export function photoSplit(ctx, after, before, rect, left, accent, guides=ctx) {
   photo(ctx, after, rect);
   if (left <= 0) return;
   const x = rect.x + left * rect.w;
@@ -55,20 +57,16 @@ export function photoSplit(ctx, after, before, rect, left, accent) {
   photo(ctx, before, rect);
   ctx.restore();
   if (left >= 1) return;
-  ctx.fillStyle = '#ffffffd9';
-  ctx.save();
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = 18;
-  ctx.fillRect(x - 1.5, rect.y, 3, rect.h);
-  ctx.restore();
+  guides.fillStyle = '#ffffffd9';
+  guides.fillRect(x - 1.5, rect.y, 3, rect.h);
   // Only the handles in the chrome glow. The divider on the image stays crisp.
-  ctx.save();
-  ctx.fillStyle = accent;
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = 18;
-  ctx.fillRect(x - 7, rect.y - 6, 14, 5);
-  ctx.fillRect(x - 7, rect.y + rect.h + 1, 14, 5);
-  ctx.restore();
+  guides.save();
+  guides.fillStyle = accent;
+  guides.shadowColor = accent;
+  guides.shadowBlur = 18;
+  guides.fillRect(x - 7, rect.y - 6, 14, 5);
+  guides.fillRect(x - 7, rect.y + rect.h + 1, 14, 5);
+  guides.restore();
 }
 
 export function maskOverlay(mask, bakedColor, accent, rect, minCoverage = 0.01) {
@@ -130,7 +128,6 @@ function brackets(ctx, x, y, w, h, accent, len = 18) {
   ctx.stroke();
 }
 
-const displayValue = (x, decimals) => x.toFixed(decimals).replace(/^-/, '−');
 function rowText(row) {
   if (row.text) return row.text;
   const from = row.from ?? 0;
@@ -162,7 +159,7 @@ export function headlineLayout(ctx, text) {
         const next=line?line+' '+word:word;
         if(line && measure(next,lines.length)>DISPLAY.maxWidth){lines.push(line);line='';}
         if(line)line+=' ';
-        for(const ch of word){
+        for(const ch of graphemes(word)){
           if(line && measure(line+ch,lines.length)>DISPLAY.maxWidth){lines.push(line);line='';}
           line+=ch;
         }
@@ -177,6 +174,11 @@ export function headlineLayout(ctx, text) {
       return ok;
     });
     if (fits || size - 4 < DISPLAY.min) {
+      if(lines.length>2){
+        ctx.letterSpacing=`${(DISPLAY.tracking * size).toFixed(2)}px`;
+        lines.splice(1,lines.length-1,ellipsize(lines[1],s=>measure(s,1)<=DISPLAY.maxWidth));
+        ctx.letterSpacing='0px';
+      }
       return lines.map((line, i) => ({
         text: line, font: fontFor(i), size,
         color: DISPLAY.colors[contrast ? Math.min(i, 1) : 0],
@@ -186,11 +188,14 @@ export function headlineLayout(ctx, text) {
   }
 }
 
-export function createScene(ctx, { original, compiled, reference, timeline }) {
+export function createScene(output, { original, compiled, reference, timeline, subjectFaces=[] }) {
   const { schedule, duration, chapterCount } = timeline;
   const final = reference || compiled;
   // One geometry for every source, mask, wipe and frame, for the entire Reel.
   const rect = photoRect(original);
+  const matte=subjectFaces.length?subjectMatte(subjectFaces,rect):null;
+  const surface=()=>new OffscreenCanvas(WIDTH,HEIGHT).getContext('2d');
+  const cut=surface(),ctx=surface();
   // Keep the cover geometry and the approved panel slot fixed for the export.
   const coverLines = headlineLayout(ctx, timeline.coverTitle);
   const baseline = 300 + Math.round(coverLines[0].size * 0.73);
@@ -201,10 +206,14 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
   }));
   const titleRect = { x: 60, y: 250, w: 900, h: titleBottom - 250 };
   const panelRect = { ...PANEL };
-  const slices = createSlices(schedule, { panelRect });
-  const overlays = new Map();
+  const slices = createSlices(schedule, { panelRect, faceCut:matte?null:cut });
+  const overlays = new Map(),subjectGuides=new Set();
   for (const cue of schedule.filter(cue => cue.scene === 'program')) {
-    overlays.set(cue.pass.index, maskOverlay(cue.pass.mask, cue.pass.color, cue.color, rect));
+    const overlay=maskOverlay(cue.pass.mask,cue.pass.color,cue.color,rect);
+    overlays.set(cue.pass.index,overlay);
+    const masks=cue.pass.corrections?.filter(c=>c.CorrectionActive!==false)
+      .flatMap(c=>c.masks.filter(m=>m.MaskActive!==false))||[];
+    if(overlay?.canvas&&masks.length&&masks.every(isSubject))subjectGuides.add(overlay.canvas);
   }
   const coverTitle = timeline.coverTitle;
   const terminal = new OffscreenCanvas(WIDTH, HEIGHT);
@@ -232,10 +241,22 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
         top: transform.d * (baseline - bounds.actualBoundingBoxAscent) + transform.f,
         bottom: transform.d * (baseline + bounds.actualBoundingBoxDescent) + transform.f, font });
       surface.fillText(text, x, baseline, max);
+      // Keep the lettering and a narrow backing readable wherever the subject
+      // crosses the fixed panel. The rest of the panel sits behind the subject.
+      cut.font=font;cut.letterSpacing=surface.letterSpacing;
+      cut.lineWidth=1.5;cut.strokeText(text,x,baseline,max);cut.fillText(text,x,baseline,max);
     };
 
-    ctx.fillStyle = NAVY;
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    output.fillStyle=NAVY;
+    output.fillRect(0,0,WIDTH,HEIGHT);
+    ctx.clearRect(0,0,WIDTH,HEIGHT);
+    cut.globalCompositeOperation='copy';
+    if(matte)cut.drawImage(matte,0,0);
+    else{
+      cut.clearRect(0,0,WIDTH,HEIGHT);
+      cut.fillRect(rect.x,rect.y,rect.w,rect.h);
+    }
+    cut.globalCompositeOperation='destination-out';
     let before, after, split = 0, title, topic, rows = [], typing = 1;
     let shortPanel = false;
     switch (cue.scene) {
@@ -300,19 +321,24 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     }
     metrics.photoWidth = rect.w;
     metrics.split = split;
-    if (before && split > 0) photoSplit(ctx, after, before, rect, split, accent);
-    else photo(ctx, after, rect);
+    if (before && split > 0) photoSplit(output, after, before, rect, split, accent,matte?ctx:output);
+    else photo(output, after, rect);
     const mask = cue.scene === 'program' ? overlays.get(cue.pass.index) : null;
     if (mask?.canvas) {
       metrics.opacity = 0.82 + 0.18 * arrive(t, cue.t0 + BEAT);
-      ctx.globalAlpha = metrics.opacity;
-      photo(ctx, mask.canvas, rect);
-      ctx.globalAlpha = 1;
+      const layer=!matte||subjectGuides.has(mask.canvas)?output:ctx;
+      layer.globalAlpha=metrics.opacity;
+      photo(layer,mask.canvas,rect);
+      layer.globalAlpha=1;
     }
     brackets(ctx, rect.x, rect.y, rect.w, rect.h, '#a4b9d1', 22);
     const drawSlices=()=>{
       metrics.slices=slices.draw(ctx,cue,t,arrive,setText);
       metrics.sliceBox=metrics.slices.length?slices.layout.placement:null;
+      ctx.globalCompositeOperation='destination-out';
+      ctx.drawImage(cut.canvas,0,0);
+      ctx.globalCompositeOperation='source-over';
+      output.drawImage(ctx.canvas,0,0);
       return metrics;
     };
     metrics.titleRect = titleRect;
@@ -367,9 +393,9 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     const rowStep = 36;
     terminalRows.forEach((line, i) => {
       const reveal = typing < 1 ? clamp(typing * 1.6 - 0.09 * i) : 1;
-      const letters = Array.from(line);
+      const letters = graphemes(line);
       const count = Math.ceil(letters.length * reveal);
-      const value = letters.slice(0, count).join('');
+      const value = letters.slice(0, count).join('').replace(/[\s·∪∩×−]+$/u,'');
       metrics.panelRows.push({ text: value, target: line, complete: count === letters.length });
       const baseline = y + 59 + i * rowStep;
       if (cue.scene === 'program' && value) {
@@ -406,6 +432,6 @@ export function createScene(ctx, { original, compiled, reference, timeline }) {
     ctx.drawImage(terminal, x - 5, y - 28, w + 10, h + 33, x - 5, y - 28, w + 10, h + 33);
     return drawSlices();
   }
-  return { frame, sliceLayout: slices.layout,
+  return { frame, subjectGuides, sliceLayout: slices.layout,
     maskCoverage: [...overlays].map(([index, entry]) => ({ index, coverage: entry?.coverage ?? null, overlay: !!entry?.canvas })) };
 }

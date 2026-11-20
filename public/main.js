@@ -262,8 +262,8 @@ function buildGroups(){
   return groups;
 }
 function validateBindings(){
-  if(!state.settings||!state.acr)return [];
-  const ids=new Set(state.acr.records.filter(r=>r.kind==='raster').map(r=>r.id));
+  if(!state.settings)return [];
+  const ids=new Set((state.acr?.records||[]).filter(r=>r.kind==='raster').map(r=>r.id));
   return [...recordUsage(state.settings)].filter(([id])=>!ids.has(id)).map(([id,usage])=>`${id} (${usage.join(', ')})`);
 }
 function sourceMismatch(){
@@ -277,7 +277,7 @@ function sourceMismatch(){
 function updateReady(){
   const missing=validateBindings(),
   mismatch=sourceMismatch(),
-  ready=state.arw&&state.settings&&state.acr&&!mismatch&&!missing.length&&!Object.keys(state.errors).some(k=>!['compile','reel'].includes(k));
+  ready=state.arw&&state.settings&&!mismatch&&!missing.length&&!Object.keys(state.errors).some(k=>!['compile','reel'].includes(k));
   const busy=state.compiling||state.loading||state.reelExporting;
   stack.available(state.compiled&&!busy);
   document.body.toggleAttribute('data-busy',!!busy);
@@ -482,7 +482,7 @@ async function loadFiles(files){
   $('#intake-error').hidden=true;
   try{
     for(const [f,ext]of recognised)await loadOne(f,ext);
-    if(state.arw&&state.settings&&state.acr&&!sourceMismatch()&&!validateBindings().length){
+    if(state.arw&&state.settings&&!sourceMismatch()&&!validateBindings().length){
       $('#status').textContent='Preparing real texture slices';
       try{
         await request('faces',{
@@ -504,7 +504,7 @@ async function loadFiles(files){
 async function compile(){
   await inspectQueue;
   if(state.compiling||state.loading||state.reelExporting)throw new Error('Wait for the current operation');
-  if(!state.arw||!state.settings||!state.acr)throw new Error('Load ARW, XMP and ACR first');
+  if(!state.arw||!state.settings)throw new Error('Load ARW and XMP first');
   const mismatch=sourceMismatch();
   if(mismatch)throw new Error(mismatch);
   const missing=validateBindings();

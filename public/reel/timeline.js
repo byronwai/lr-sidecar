@@ -1,3 +1,4 @@
+import {displayValue} from './text.js';
 import { maskExpression } from '../anim/summary.js';
 
 export const WIDTH = 1080;
@@ -222,7 +223,7 @@ function pacingRows(pass, correctionIndex = 0) {
     return [{ label: key === 'Temperature' && !local ? 'WB' : label, value: rounded, decimals, from: from || 0 }];
   });
   const curves = [];
-  if(local&&Number(settings.LocalToningSaturation))values.push({text:`Color ${Number(settings.LocalToningHue||0).toFixed(0)}° / ${Math.round(Number(settings.LocalToningSaturation)*100)}`});
+  if(local&&Number(settings.LocalToningSaturation))values.push({text:`Color ${displayValue(settings.LocalToningHue||0)}° / ${displayValue(Number(settings.LocalToningSaturation)*100)}`});
   for (const [key, label] of [['RedCurve', 'Red'], ['MainCurve', 'RGB'], ['GreenCurve', 'Green'], ['BlueCurve', 'Blue']]) {
     if (settings[key]?.length) curves.push(...curveRows(label, settings[key]));
   }
@@ -251,7 +252,7 @@ export function valueCandidates(pass) {
       return [{ key, strength: Math.abs(value - from) / range, row }];
     });
     if (local && Number(s.LocalToningSaturation)) values.push({ key: 'Color', strength: Math.abs(Number(s.LocalToningSaturation)),
-      row: { text: `Color ${Number(s.LocalToningHue || 0).toFixed(0)}° / ${Math.round(Number(s.LocalToningSaturation) * 100)}` } });
+      row: { text: `Color ${displayValue(s.LocalToningHue || 0)}° / ${displayValue(Number(s.LocalToningSaturation) * 100)}` } });
     if (!local) for (const band of ['Red','Orange','Yellow','Green','Aqua','Blue','Purple','Magenta']) {
       for (const field of ['Hue','Saturation','Luminance']) {
         const value = Number(s[field + 'Adjustment' + band]);

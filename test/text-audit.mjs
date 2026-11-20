@@ -10,7 +10,7 @@ export async function auditText(){
   const corrections=descriptions.filter(d=>d.getAttributeNS(ns,'What')==='Correction');
   const read=(d,k)=>d.getAttributeNS(ns,k)??[...d.children].find(el=>el.localName===k)?.textContent.trim();
   const names=passes.map(p=>p.name).concat(lrc.state.settings.corrections.flatMap(c=>c.masks.map(m=>m.MaskName))).filter(Boolean);
-  const fixed=['LIGHTROOM','ARW + XMP + ACR','compiled(edit);','before','after','PASS'];
+  const fixed=['LIGHTROOM','ARW + XMP','ARW + XMP + ACR','compiled(edit);','before','after','PASS'];
   const vocabulary=new Set(('AI background subject sky mask Masking Linear Radial gradient Luminance Color range Brush raster rasters Global Basic Tone Curve Grading HSL Remove RGB Red Orange Yellow Green Aqua Blue Purple Magenta Hue Saturation Exposure Shadows Highlights Whites Blacks Contrast Temperature Tint Clarity Texture Dehaze Vibrance Glow Midtones Balance Blending WB White balance Profile H S L curves curve pts K full').toLowerCase().split(' '));
   const xmlTargets=new Map();
   const num=(v,d)=>Number(v).toFixed(d).replace(/^-/,'−');
@@ -31,7 +31,7 @@ export async function auditText(){
         if(v)values.add(band+' '+field.toLowerCase()+' 0 → '+num(v,0));
       }
       const sat=read(d,'LocalToningSaturation');
-      if(sat)values.add('Color '+Number(read(d,'LocalToningHue')||0).toFixed(0)+'° / '+Number(sat).toFixed(2));
+      if(sat)values.add('Color '+Number(read(d,'LocalToningHue')||0).toFixed(0)+'° / '+Math.round(Number(sat)*100));
       for(const [key,label] of [['MainCurve','RGB'],['RedCurve','Red'],['GreenCurve','Green'],['BlueCurve','Blue']]){
         const curve=d.getElementsByTagNameNS(ns,key)[0];
         if(curve)values.add(label+' curve · '+curve.getElementsByTagNameNS('*','li').length+' pts');
@@ -41,6 +41,7 @@ export async function auditText(){
   }
   const strings=new Set(),other=new Set(),valueErrors=new Set();
   const known=str=>{
+    if(str.endsWith('…'))str=str.slice(0,-1);
     if(fixed.includes(str)||cover.includes(str)||t.camera===str||t.lens?.includes(str))return true;
     if(passes.some(p=>('PASS '+p.index+' · '+p.name).toLowerCase().includes(str.toLowerCase())))return true;
     let words=str;
@@ -49,13 +50,32 @@ export async function auditText(){
     return !words || words.toLowerCase().split(/\s+/).every(w=>vocabulary.has(w));
   };
   const frames=Math.round(t.duration*30);
+  let unsafe=0,dangling=0,asciiNegatives=0;
+  const drawn=new Set();
+  const prototypes=[OffscreenCanvasRenderingContext2D.prototype,CanvasRenderingContext2D.prototype];
+  const saved=prototypes.map(p=>p.fillText);
+  const paintFrame=time=>{
+    drawn.clear();
+    for(const [i,p] of prototypes.entries())p.fillText=function(text,...args){
+      drawn.add(String(text));
+      return saved[i].call(this,text,...args);
+    };
+    try{return frame(time);}
+    finally{prototypes.forEach((p,i)=>{p.fillText=saved[i];});}
+  };
   for(let i=0;i<frames;i++){
-    const m=frame(i/30),cue=t.schedule.find(c=>i/30<c.t1);
-    for(const {text} of m.text){
+    const m=paintFrame(i/30),cue=t.schedule.find(c=>i/30<c.t1);
+    for(const {text,left,right,top,bottom} of m.text){
+      if(left<60||right>960||top<250||bottom>1480)unsafe++;
+      if(/^[·∪∩×]|[·∪∩×−]$|^−\s/u.test(text))dangling++;
+      if(/(?:^|\s)-\d/u.test(text))asciiNegatives++;
       strings.add(text);
       const target=m.panelRows?.find(r=>r.text===text)?.target;
       if(!known(target||text))other.add(target||text);
       if(target && !target.startsWith(text))other.add(text);
+    }
+    for(const glyphs of drawn){
+      if(!m.text.some(token=>token.text===glyphs))other.add(glyphs);
     }
     for(const {target} of m.panelRows||[]){
       if(cue.scene==='payoff'||!(/→|°|\bpts\b|^White balance/.test(target)))continue;
@@ -64,5 +84,5 @@ export async function auditText(){
     }
   }
   if(t.coverTitle!==cover)other.add(t.coverTitle);
-  return {frames,strings:[...strings].sort(),other:[...other],valueErrors:[...valueErrors]};
+  return {frames,unsafe,dangling,asciiNegatives,strings:[...strings].sort(),other:[...other],valueErrors:[...valueErrors]};
 }

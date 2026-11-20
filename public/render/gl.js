@@ -6,7 +6,7 @@ import {
   maskShader,
   copyShader,
   adjustmentUniforms,
-  curveData,
+  curveLUT,
   bands
 } from './passes.js';
 import { relativeWhiteBalance } from '../formats/wb.js';
@@ -165,12 +165,17 @@ export class Pipeline {
       resizeHeight:Math.max(1,Math.round(c.height*scale))
     });
   }
+  curve(settings,local=false){
+    const {mode,data}=curveLUT(settings,local);
+    return {mode,texture:data?this.texture(data,1024,1):this.white};
+  }
   globals(source,g,asShot){
     const out=this.target(),
-    curve=this.texture(curveData(g),1024,1),
+    curve=this.curve(g),
     grade=(prefix,hue,sat,l)=>[num(g,hue)/360,num(g,sat)/100,num(g,l)/100,0];
     this.draw(this.global,out,{
       ...adjustmentUniforms(g),
+      curveMode:curve.mode,
       whiteBalance: relativeWhiteBalance(asShot, g).gains,
       displayReferred:true,
       texel:[1/this.width,1/this.height],
@@ -183,7 +188,7 @@ export class Pipeline {
       gradeMix:[num(g,'SplitToningBalance')/100,num(g,'ColorGradeBlending',50)/100]
     },{
       image:source,
-      curve
+      curve:curve.texture
     });
     return out;
   }
@@ -332,16 +337,17 @@ export class Pipeline {
   }
   correction(source,c,mask){
     const out=this.target(),
-    curve=this.texture(curveData(c,true),1024,1);
+    curve=this.curve(c,true);
     this.draw(this.local,out,{
       ...adjustmentUniforms(c,true),
+      curveMode:curve.mode,
       whiteBalance:[1,1,1],
       displayReferred:false,
       texel:[1/this.width,1/this.height],
       amount:num(c,'CorrectionAmount',1)
     },{
       image:source,
-      curve,
+      curve:curve.texture,
       mask:mask.texture
     });
     return out;

@@ -2,6 +2,7 @@ import { canExport, encodeReel } from './reel/encode.js';
 import { buildTimeline, compareFrames, pipelineHeadline, FPS, HEIGHT, WIDTH } from './reel/timeline.js';
 import { createScene, loadReelFonts } from './reel/scene.js';
 
+import {isSubject,subjectFaces} from './reel/subject.js';
 import { buildTutorialTimeline, tutorialCaption } from './reel/tutorial.js';
 import { createTutorialScene } from './reel/tutorial-scene.js';
 
@@ -94,12 +95,17 @@ function prepare() {
 
 async function selectedData() {
   const base = prepareTeaser();
-  if (!base || !tutorialSelected()) return base;
+  if(!base)return base;
+  const {state,tutorialSources}=window.lrc;
+  if(tutorialSelected()||state.settings.corrections.some(c=>c.masks.some(isSubject))){
+    base.sources??=await (base.sourceRequest??=tutorialSources().catch(e=>{delete base.sourceRequest;throw e;}));
+    base.subjectFaces??=subjectFaces(base.sources.masks,state.settings);
+  }
+  if (!tutorialSelected())return base;
   if (!base.tutorial) {
-    const {state,tutorialSources} = window.lrc;
-    const sources = await tutorialSources();
+    const sources=base.sources;
     const timeline = buildTutorialTimeline(base,state.settings,state.arw,sources.original);
-    base.tutorial = {...base,sources,timeline,settings:state.settings,arw:state.arw};
+    base.tutorial = {...base,sources,timeline,hasACR:!!state.acr,settings:state.settings,arw:state.arw};
   }
   return base.tutorial;
 }
@@ -132,7 +138,7 @@ async function exportReel() {
     const result = await encodeReel(canvas, frame, data.timeline.duration, notice);
     const duration = data.timeline.duration;
     const wallMilliseconds = performance.now() - started;
-    const base = png.download.replace(/-compiled\.png$/i, '');
+    const base = png.download.replace(/-compiled\.png$/i, '').replace(/[^A-Za-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'') || 'edit';
     clearPreview();
     for (const [link, blob, name] of [[reelLink, result.blob, 'reel.mp4'], [coverLink, cover, 'cover.jpg']]) {
       link.href = URL.createObjectURL(blob);

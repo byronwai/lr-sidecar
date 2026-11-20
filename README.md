@@ -2,7 +2,7 @@
 
 **Rebuild a Lightroom edit layer by layer, in your browser.**
 
-Drop a Sony ARW together with its Camera Raw XMP and ACR sidecars. LR Sidecar Compiler reads the edit as a program and replays every global setting, AI mask and local correction on the GPU. Each pass is drawn as a slice in an animated stack. You can compare the result against the camera's rendering, and export it as an image or as a vertical Instagram Reel.
+Drop a Sony ARW and its Camera Raw XMP. Include the ACR sidecar when the edit references AI rasters or Remove patches. LR Sidecar Compiler reads the edit as a program and replays every global setting, AI mask and local correction on the GPU. Each pass is drawn as a slice in an animated stack. You can compare the result against the camera's rendering, and export it as an image or as a vertical Instagram Reel.
 
 [![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-4d6bfe)](LICENSE)
 [![Runs in the browser](https://img.shields.io/badge/runs-in%20your%20browser-4d6bfe)](https://lr-sidecar.byronwai.workers.dev/)

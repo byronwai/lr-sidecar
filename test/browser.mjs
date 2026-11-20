@@ -12,13 +12,16 @@ import assert from 'node:assert/strict';
 import { regressionChecks } from './regressions.mjs';
 import { auditText } from './text-audit.mjs';
 import { auditTutorial } from './tutorial-audit.mjs';
+import { fileURLToPath } from 'node:url';
+// Screenshots go to LR_SIDECAR_ARTIFACTS, or test/artifacts/ (git-excluded) by default.
+const out=process.env.LR_SIDECAR_ARTIFACTS||fileURLToPath(new URL('./artifacts/',import.meta.url));
 const directory=process.argv[2];
 if(!directory)throw new Error('Usage: node test/browser.mjs <sample-directory> [--full] [--screenshots]');
 const screenshots=process.argv.includes('--screenshots');
 async function saveArtifact(name,data){
   if(!screenshots)return;
-  await mkdir(new URL('./artifacts/',import.meta.url),{recursive:true});
-  await writeFile(new URL(`./artifacts/${name}`,import.meta.url),Buffer.from(data,'base64'));
+  await mkdir(out,{recursive:true});
+  await writeFile(join(out,name),Buffer.from(data,'base64'));
 }
 const tabs=await fetch('http://127.0.0.1:9223/json/list').then(r=>r.json()),tab=tabs.find(t=>process.env.LR_CDP_TARGET?t.id===process.env.LR_CDP_TARGET:t.type==='page');
 const ws=new WebSocket(tab.webSocketDebuggerUrl);
@@ -143,7 +146,7 @@ assert.deepEqual(tutorial.mismatch,[]);
 assert.equal(tutorial.unsafe+tutorial.rectDeviation+tutorial.endOverlays,0);
 assert.ok(tutorial.maxRows<=4 && tutorial.min.panel>=70);
 assert.ok(tutorial.min.value>=30 && tutorial.min.kicker>=28 && tutorial.min.label>=28);
-assert.ok(tutorial.steps.length<=7 && tutorial.steps.every(s=>s.score>=.6 && s.dwell===2));
+assert.ok(tutorial.steps.length<=7 && tutorial.steps.every(s=>s.score>=.6 && [1.5,2,2.5].includes(s.dwell)));
 await evaluate("document.querySelector('[name=reel-mode][value=teaser]').click()");
 for(const mode of ['teaser','tutorial']){
   await evaluate(`document.querySelector('[value="${mode}"]').click()`);
@@ -152,6 +155,7 @@ for(const mode of ['teaser','tutorial']){
   for(const description of ['Night, but redder.','']){
     await evaluate(`(()=>{const el=document.querySelector('#reel-description');el.value=${JSON.stringify(description)};el.dispatchEvent(new Event('input'))})()`);
     const audit=await evaluate('('+auditText.toString()+')()');
+    assert.equal(audit.unsafe+audit.dangling+audit.asciiNegatives,0);
     assert.deepEqual(audit.other,[]);
     assert.deepEqual(audit.valueErrors,[]);
     if(mode==='teaser'&&description){
@@ -176,6 +180,32 @@ for(const mode of ['teaser','tutorial']){
     assert.ok(audit.strings.includes(title),'Cover text reaches the renderer');
   }
 }
+const wrapping=await evaluate(`(async()=>{
+  const {labelLines,displayValue}=await import('./reel/text.js');
+  const {headlineLayout,loadReelFonts}=await import('./reel/scene.js');
+  const descriptions=['夜色裡的街道與天空','👩🏽‍🎨'.repeat(6),'晨光映在街道上的每一扇窗'.repeat(5)];
+  await loadReelFonts(descriptions.join(''));
+  const ctx=new OffscreenCanvas(1080,1920).getContext('2d');
+  const font='500 32px "Reel Mono","Noto Sans TC Variable",monospace';
+  const full=['PASS 2 · Background ∪ Architecture ∪ Sky','AI subject mask · Linear gradient × 2 · 1 raster',
+    '天空與背景 · 遮色片 − 人物 · 天空 × 2 · Linear gradient'];
+  ctx.font=font;
+  const union='Background ∪ Architecture';
+  let valid=labelLines(ctx,union+' ∪ Sky',ctx.measureText(union).width+1,font).join('|')===union+'|Sky';
+  for(const label of full)for(const w of [320,520,764]){
+    const lines=labelLines(ctx,label,w,font);
+    valid&&=lines.length<=2&&lines.every(s=>ctx.measureText(s).width<=w&&!/^[∪·−×]|[∪·−×]$/u.test(s));
+  }
+  for(const desc of descriptions){
+    const lines=headlineLayout(ctx,desc);
+    valid&&=lines.length<=2&&lines.every(l=>{
+      ctx.font=l.font;ctx.letterSpacing=l.tracking;
+      return ctx.measureText(l.text).width<=868 && !l.text.endsWith('‍');
+    });
+  }
+  return [valid,descriptions[2].length,displayValue(-.44,2),displayValue(-.001,2)];
+})()`);
+assert.deepEqual(wrapping,[true,60,'−0.44','0.00']);
 await evaluate("document.querySelector('[value=teaser]').click()");
 console.log('Tutorial schedule, XML controls and frame bounds pass');
 const measuredTitles=await evaluate(`(async()=>{

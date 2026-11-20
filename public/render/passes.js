@@ -20,6 +20,7 @@ uniform vec3 whiteBalance;
 uniform bool displayReferred;
 uniform vec2 texel;
 uniform sampler2D curve;
+uniform int curveMode; // 0 identity, 1 master only, 2 master and RGB channels
 uniform float glow;
 vec3 curveRGB(vec3 c){return vec3(texture(curve,vec2(clamp(c.r,0.,1.),.5)).r,texture(curve,vec2(clamp(c.g,0.,1.),.5)).g,texture(curve,vec2(clamp(c.b,0.,1.),.5)).b);}
 vec3 adjust(vec3 src){
@@ -36,7 +37,18 @@ vec3 adjust(vec3 src){
   c+=(linearize(src)-linearize(blur))*detail.z*.4+(linearize(src)-linearize(broad))*detail.y*.65;
   c+=linearize(broad)*glow*.12*smoothstep(.15,.9,lum(broad));
   c=encode(max(c,vec3(0)));c=mix(vec3(lum(c)),c,1.+color.w);
-  return curveRGB(c);
+  if(curveMode==0)return c;
+  // Map the extrema through the master curve and interpolate the middle
+  // channel at its original position. This preserves hue through the bend.
+  float darkest=min(c.r,min(c.g,c.b)),brightest=max(c.r,max(c.g,c.b));
+  float low=texture(curve,vec2(darkest,.5)).a,high=texture(curve,vec2(brightest,.5)).a;
+  c=low+(c-darkest)*(high-low)/max(brightest-darkest,1e-8);
+  if(curveMode==1)return c;
+  // Evaluate individual channel knots in ProPhoto primaries with the sRGB
+  // transfer function. The framebuffer and mask compositing remain in sRGB.
+  const mat3 toWide=mat3(.52935,.09837,.01688, .33007,.87346,.11767, .14058,.02817,.86545);
+  vec3 wide=encode(toWide*linearize(c));
+  return encode(inverse(toWide)*linearize(curveRGB(wide)));
 }
 `;
 export const globalShader = header + adjustments + `
@@ -116,7 +128,9 @@ float rasterCoverage(vec2 p) {
 vec3 lab(vec3 c){c=linearize(c);vec3 xyz=mat3(.4124564,.2126729,.0193339,.3575761,.7151522,.1191920,.1804375,.072175,.9503041)*c/vec3(.95047,1.,1.08883);vec3 f=mix(xyz*7.787+vec3(16./116.),pow(max(xyz,vec3(0)),vec3(1./3.)),step(vec3(.008856),xyz));return vec3((116.*f.y-16.)/100.,(500.*(f.x-f.y)+128.)/255.,(200.*(f.y-f.z)+128.)/255.);}
 void main(){float m=0.;
 if(kind==0){m=rasterCoverage(uv);}
-if(kind==1){vec2 d=geometry.zw-geometry.xy;float t=clamp(dot(uv-geometry.xy,d)/max(dot(d,d),1e-8),0.,1.);m=t*t*(3.-2.*t);}
+// XMP coordinates are normalized independently per axis. Project in physical
+// image space so diagonal gradient planes stay perpendicular on non-square photos.
+if(kind==1){vec2 metric=vec2(imageSize.x/imageSize.y,1.);vec2 d=(geometry.zw-geometry.xy)*metric;float t=clamp(dot((uv-geometry.xy)*metric,d)/max(dot(d,d),1e-8),0.,1.);m=t*t*(3.-2.*t);}
 if(kind==2){vec2 p=uv-(rect.xy+rect.zw*.5);float aspect=max(1e-5,geometry.x);p.x*=aspect;float a=radians(radial.x);p=mat2(cos(a),-sin(a),sin(a),cos(a))*p;vec2 q=abs(p/max(rect.zw*vec2(aspect,1.)*.5,vec2(.00001)));float exponent=clamp(2.+radial.z*.04,.5,8.);float d=pow(pow(q.x,exponent)+pow(q.y,exponent),1./exponent);m=1.-smoothstep(max(0.,1.-feather),1.,d);m=pow(m,log(.5)/log(clamp(radial.y/100.,.01,.99)));if(!flipped)m=1.-m;}
 if(kind==3){float l=texture(lumEq,vec2(lum(linearize(texture(image,uv).rgb)),.5)).r;m=smoothstep(lumRange.x, max(lumRange.x+.00001,lumRange.y),l)*(1.-smoothstep(lumRange.z,max(lumRange.z+.00001,lumRange.w),l));}
 if(kind==4){vec3 c=lab(texture(image,uv).rgb);float d=10.;for(int i=0;i<16;i++){if(i>=sampleCount)break;vec3 target=mix(labMin,labMax,samples[i]);d=min(d,length((c-target)*vec3(.5,1.,1.)));}if(sampleCount==0){vec3 target=lab(texture(image,samplePoint).rgb);d=length((c-target)*vec3(.5,1.,1.));}float tolerance=mix(.015,.25,colorAmount);m=1.-smoothstep(tolerance*.4,tolerance,d);}
@@ -137,11 +151,14 @@ export function adjustmentUniforms(g,local=false){
     ...(local?{localToning:[n('ToningHue')/360,n('ToningSaturation')]}:{})
   };
 }
-export function curveData(settings,local=false){
+export function curveLUT(settings,local=false){
   const names=local?['MainCurve','RedCurve','GreenCurve','BlueCurve']:['ToneCurvePV2012','ToneCurvePV2012Red','ToneCurvePV2012Green',
   'ToneCurvePV2012Blue'];
-  const curves=names.map(k=>(settings[k]||['0,0','255,255']).map(p=>String(p).split(/[, ]+/).map(Number)).sort((a,
+  const curves=names.map(k=>(settings[k]?.length?settings[k]:['0,0','255,255']).map(p=>String(p).split(/[, ]+/).map(Number)).sort((a,
   b)=>a[0]-b[0]));
+  const changed=curve=>curve[0][0]!==0 || curve.at(-1)[0]!==255 || curve.some(([x,y])=>x!==y);
+  const mode=curves.slice(1).some(changed)?2:changed(curves[0])?1:0;
+  if(!mode)return {mode};
   const evalCurve=(curve,x)=>{
     x*=255;
     let i=1;
@@ -152,9 +169,10 @@ export function curveData(settings,local=false){
   };
   const data=new Uint8Array(1024*4);
   for(let i=0;i<1024;i++){
-    const x=evalCurve(curves[0],i/1023);
-    for(let c=0;c<3;c++)data[i*4+c]=Math.round(Math.max(0,Math.min(1,evalCurve(curves[c+1],x)))*255);
-    data[i*4+3]=255;
+    for(let channel=0;channel<4;channel++){
+      const curve=curves[(channel+1)%4]; // R, G, B, master
+      data[i*4+channel]=Math.round(Math.max(0,Math.min(1,evalCurve(curve,i/1023)))*255);
+    }
   }
-  return data;
+  return {mode,data};
 }

@@ -2,12 +2,16 @@
 export async function auditTutorial() {
   // Capture the guide paths while the scene bakes them. Only geometry layers
   // use full-Reel offscreen surfaces with stroked line segments at this stage.
-  const proto=OffscreenCanvasRenderingContext2D.prototype,original={},paths=[],pending=new WeakMap();
-  for(const key of ['beginPath','moveTo','lineTo','stroke']){
+  let geometryFills=0;
+  const proto=OffscreenCanvasRenderingContext2D.prototype,original={},paths=[],pending=new WeakMap(),badges=new WeakSet();
+  for(const key of ['beginPath','moveTo','lineTo','arc','stroke','fill','fillRect']){
     original[key]=proto[key];
     proto[key]=function(...args){
       if(this.canvas.width===1080 && this.canvas.height===1920){
-        if(key==='beginPath')pending.set(this,[]);
+        // The only filled guide path is the small circular number badge.
+        if(key==='fillRect'||(key==='fill'&&!badges.has(this)))geometryFills++;
+        if(key==='beginPath'){pending.set(this,[]);badges.delete(this);}
+        if(key==='arc'&&args[2]<=18)badges.add(this);
         if(key==='moveTo'||key==='lineTo')pending.get(this)?.push(args);
         if(key==='stroke'&&pending.get(this)?.length)paths.push(pending.get(this));
       }
@@ -86,7 +90,7 @@ export async function auditTutorial() {
     for(const band of ['Red','Orange','Yellow','Green','Aqua','Blue','Purple','Magenta']){
       for(const field of ['Hue','Saturation','Luminance']){
         const v=Number(attr(root,field+'Adjustment'+band));
-        if(attr(root,field+'Adjustment'+band)!=null)check('caption '+band+' '+field,caption.includes(band+' '+field.toLowerCase()+' '+v+'\n')||caption.includes(band+' '+field.toLowerCase()+' '+v+'\r'),true);
+        if(attr(root,field+'Adjustment'+band)!=null)check('caption '+band+' '+field,caption.split('\n').includes(band+' '+field.toLowerCase()+' '+String(v).replace('-','−')),true);
       }
     }
   }
@@ -118,7 +122,7 @@ export async function auditTutorial() {
       ctx[key]=function(...args){list.push(args);return originals[key].apply(this,args);};
     }
     let m;
-    try {m=renderer.frame(s.t0+1.8);}
+    try {m=renderer.frame(s.t1-.22);}
     finally {for(const key of Object.keys(originals))ctx[key]=originals[key];}
     const knobs=arcs.filter(a=>a[2]===7);
     const points=arcs.filter(a=>a[2]===3.5);
@@ -133,7 +137,7 @@ export async function auditTutorial() {
       // of ±4 EV, other local sliders as a fraction of ±100.
       const local=/^Local/.test(r.key),base=r.key.replace(/^Local/,'');
       const shown=raw==null?null:local?(base==='Exposure2012'?Number((Number(raw)*4).toFixed(2)):Math.round(Number(raw)*100)):Number(raw);
-      const text=m.text.find(t=>t.role==='value' && t.text.endsWith(' K')===(r.key==='Temperature') && Number(t.text.replace(/ K$/,''))===shown)?.text;
+      const text=m.text.find(t=>t.role==='value' && t.text.endsWith(' K')===(r.key==='Temperature') && Number(t.text.replace('−','-').replace(/ K$/,''))===shown)?.text;
       check('drawn '+r.key,!!text,true);
       const [kx,ky]=knobs.shift()||[];
       const track=lines.filter(p=>p[1]===ky);
@@ -162,6 +166,10 @@ export async function auditTutorial() {
       const angle=Number(attr(source(w.correction),h))*Math.PI/180,mag=Number(attr(source(w.correction),sat))/w.unit;
       check('wheel point '+w.name,Math.hypot(px-x-r*mag*Math.cos(angle),py-y-r*mag*Math.sin(angle))<.00001,true);
       for(const [key,value] of [[h,w.hue],[sat,w.sat],[l,w.lum]])if(key)check(key,value,Number(attr(source(w.correction),key)||0));
+      const signed=v=>String(Math.round(v)).replace('-','−');
+      const degrees=Number(attr(source(w.correction),h)||0),amount=Number(attr(source(w.correction),sat)||0)*100/w.unit;
+      const light=l?Number(attr(source(w.correction),l)||0):0;
+      check('drawn wheel values '+w.name,m.text.some(t=>t.text==='H '+signed(degrees)+' · S '+signed(amount)+(light?' · L '+signed(light):'')),true);
       controls.push(w.name+' H '+w.hue+' · S '+w.sat+(w.lum?' · L '+w.lum:''));
     }
     if(s.mixer){
@@ -189,7 +197,14 @@ export async function auditTutorial() {
       if(detail.What==='Mask/Gradient'){
         for(const end of ['Zero','Full']){
           const [a,b]=paths.shift()||[];
-          if(a&&b)guideError(sensor([(a[0]+b[0])/2,(a[1]+b[1])/2]),detail[end+'X'],detail[end+'Y']);
+          if(a&&b){
+            guideError(sensor([(a[0]+b[0])/2,(a[1]+b[1])/2]),detail[end+'X'],detail[end+'Y']);
+            const aspect=lrc.state.arw.chosen.width/lrc.state.arw.chosen.height;
+            const p=sensor(a),q=sensor(b),tx=(q.x-p.x)*aspect,ty=q.y-p.y;
+            const nx=(detail.FullX-detail.ZeroX)*aspect,ny=detail.FullY-detail.ZeroY;
+            const cosine=(tx*nx+ty*ny)/(Math.hypot(tx,ty)*Math.hypot(nx,ny));
+            check('gradient guide perpendicular '+end,Math.abs(cosine)<1e-6,true);
+          }
           else check('gradient guide '+end,false,true);
         }
       }
@@ -219,6 +234,7 @@ export async function auditTutorial() {
   }
   check('all geometry paths matched',paths.length,0);
   check('geometry in sensor coordinates',maxGuideError<1e-8,true);
-  return {min,strings:[...strings],camera:timeline.camera,steps,duration:timeline.duration,maxGuideError,
+  check('no large guide fills',geometryFills,0);
+  return {min,geometryFills,strings:[...strings],camera:timeline.camera,steps,duration:timeline.duration,maxGuideError,
     checks,mismatch,rectDeviation,unsafe,maxRows,endOverlays,maxSubject,subjectPixels:renderer.subjectPixels};
 }

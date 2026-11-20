@@ -13,7 +13,7 @@ import {
   finishOrientedCanvas,
   finishCanvas
 } from './render/gl.js';
-let preview=null,arw=null,acr=null,rasters=new Map(),pipeline=null,outputs=new Map(),settings=null,busy=false;
+let preview=null,arw=null,rasters=new Map(),pipeline=null,outputs=new Map(),settings=null,busy=false;
 let alignmentCache=null;
 function rasterAlignment(message){
   const key=JSON.stringify([message.settings.lensDistort,message.settings.corrections.map(c=>c.masks)]);
@@ -252,7 +252,7 @@ async function tutorialSources({job, groups, rasterEdges, rasterWarp}) {
 }
 
 async function compile(message){
-  if(!preview||!acr)throw new Error('Read ARW and ACR before compiling');
+  if(!preview)throw new Error('Read ARW before compiling');
   settings=message.settings;
   const lensDistort=rasterAlignment(message);
   const {
@@ -440,7 +440,6 @@ onmessage=async event=>{
       },[bitmap]);
     }else if(m.type==='acr'){
       alignmentCache=null;
-      acr=null;
       rasters.clear();
       const bytes=new Uint8Array(m.buffer),
       report=parseACR(bytes);
@@ -448,7 +447,6 @@ onmessage=async event=>{
         if(r.kind==='raster')rasters.set(r.id,await decodeRaster(bytes,r,job));
         else r.receipt=await inflateReceipt(bytes,r);
       }
-      acr=report;
       send('acr',{
         job,
         report,

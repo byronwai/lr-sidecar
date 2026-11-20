@@ -1,4 +1,5 @@
 import { MIN_SCORE, maskType, valueCandidates, uiValue } from './timeline.js';
+import {displayValue} from './text.js';
 import { bands } from '../render/passes.js';
 
 const wheelKeys = [
@@ -89,34 +90,45 @@ export function buildTutorialTimeline({original,compiled,reference,timeline},set
     schedule.push({scene,t0:duration,t1:duration+seconds,...fields});
     duration+=seconds;
   }
-  cue('hook',1,{after:final});
-  cue('source',1.5,{after:cameraOriginal});
-  for(const s of steps){
+  const density=steps.map(s=>s.drawnRows.length+s.curves.length+s.wheels.length+Number(s.mixer));
+  const dwell=density.map(n=>n>=5?2.5:n<=2?1.5:2);
+  const total=()=>5+steps.length*.5+dwell.reduce((a,b)=>a+b,0);
+  while(total()>22){
+    const order=dwell.map((seconds,i)=>({i,seconds,n:density[i]}))
+      .filter(v=>v.seconds>1.5).sort((a,b)=>b.seconds-a.seconds||a.n-b.n);
+    dwell[order[0].i]-=.5;
+  }
+  const holds={hook:1,source:1.5,before:1,after:1.5};
+  const extraBeats=Math.max(0,(12-total())*2);
+  const readingOrder=['source','after','before','hook'];
+  for(let beat=0;beat<extraBeats;beat++)holds[readingOrder[beat%4]]+=.5;
+  cue('hook',holds.hook,{after:final});
+  cue('source',holds.source,{after:cameraOriginal});
+  for(const [i,s] of steps.entries()){
     const before=all[all.indexOf(s)-1]?.after||original;
     cue('lift',.5,{...s,after:before});
-    cue('step',2,{...s,before});
+    cue('step',dwell[i],{...s,before});
   }
-  cue('before',1,{after:cameraOriginal});
-  cue('after',1.5,{before:cameraOriginal,after:final});
+  cue('before',holds.before,{after:cameraOriginal});
+  cue('after',holds.after,{before:cameraOriginal,after:final});
   const g=settings.globals;
-  const crop=g.HasCrop?['CropAngle','CropLeft','CropTop','CropRight','CropBottom'].filter(k=>g[k]!=null).map(k=>k+' '+g[k]):[];
+  const crop=g.HasCrop?['CropAngle','CropLeft','CropTop','CropRight','CropBottom'].filter(k=>g[k]!=null).map(k=>k+' '+String(g[k]).replace(/^-/,'−')):[];
   return {mode:'tutorial',schedule,steps,all,duration,description:timeline.description,coverTitle:timeline.coverTitle,
     camera:cameraLine(settings.camera,arw.ifds),lens:settings.lensModel||arw.ifds?.find(i=>i.tags[42036])?.tags[42036],crop};
 }
 
 export function tutorialCaption(t,indices=t.steps.map(s=>s.number)) {
-  const row=r=>r.label+' '+r.value+(r.key==='Temperature'?' K':'');
+  const row=r=>r.label+' '+displayValue(r.display?.value??r.value,r.display?.decimals??r.decimals)+(r.key==='Temperature'?' K':'');
   const tags=c=>(c.numbers||[]).map(badge).join('');
   const curve=c=>c.name+' curve '+c.points.map(p=>'('+p.join(', ')+')').join(' ');
-  const wheel=w=>w.name+' · H '+w.hue+' · S '+w.sat+' · L '+w.lum;
+  const wheel=w=>w.name+' · H '+displayValue(w.hue)+' · S '+displayValue(w.sat*100/w.unit)+' · L '+displayValue(w.lum);
   const summary=t.all.filter(s=>indices.includes(s.number)).map(s=>{
     const values=s.drawnRows.slice(0,2).map(row);
     if(!values.length)values.push(s.curves.length?curve(s.curves[0]):s.wheels.length?wheel(s.wheels[0]):s.spec);
     return [s.kicker,...values].join(' · ');
   }).join('\n');
-  const detail=t.all.map(s=>[s.kicker,...s.masks.map(m=>badge(m.number)+' '+(m.geometry.MaskName||m.type)),
+  const detail=t.all.map(s=>[s.kicker,s.spec,...s.masks.map(m=>badge(m.number)+' '+(m.geometry.MaskName||m.type)),
     ...s.rows.map(r=>(tags(r)+' '+row(r)).trim()),...s.curves.map(c=>tags(c)+' '+curve(c)),
     ...s.wheels.map(w=>tags(w)+' '+wheel(w))].join('\n'));
-  return [t.description,summary,t.camera,...detail,...t.crop,'Every slider is in the video, pause and copy 📌',
-    '#lightroom #photoediting #lightroomtutorial'].filter(Boolean).join('\n\n');
+  return [t.description,summary,t.camera,t.lens,...detail,...t.crop,'#lightroom #photoediting #lightroomtutorial'].filter(Boolean).join('\n\n');
 }

@@ -40,7 +40,7 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 
 - The page stack starts packed. Measured height is **30.02%** of expanded height at 1440 px and **30.02%** at 375 px; neither layout overflows horizontally. Click/tap and Enter/Space expand, Escape and the collapse control pack it; reduced motion switches immediately. Parameters and the separation slider show when expanded.
 - The portrait sample and street sample show their mini stack in rewind and every chapter program beat. After half a beat the slice becomes a roughly 64 px panel-header thumbnail, retained through answer and hold. All 630 audited frames keep the motif inside the approved panel slot. Photo geometry remains fixed and held photo pixels remain unchanged outside that slot.
-- Landscape sample local Color is applied in linear light with luminance-preserving gamut fitting. Measured sky HSV hue moves **236.82° → 229.43°**, toward the 230° swatch. Mean masked RGB error against the Lightroom export improves **28.21 → 26.47/255**; the export still differs visibly.
+- Outdoor portrait sample local Color is applied in linear light with luminance-preserving gamut fitting. Measured sky HSV hue moves **236.82° → 229.43°**, toward the 230° swatch. Mean masked RGB error against the camera JPEG used in that comparison improves **28.21 → 26.47/255**. The edited reference is measured separately below.
 - The historical colour-title experiment was superseded by the factual pipeline covers verified below.
 
 ## Approved Reel proposals
@@ -102,3 +102,20 @@ On the portrait, the median mask-to-image displacement dropped from **11.4 px to
 
 - Values drawn in both Reels use Lightroom's own slider units. Local (mask) sliders are stored in the XMP as fractions: local exposure is shown as the fraction × 4 EV with two decimals, and every other local slider as the fraction × 100, rounded. On the portrait sample, `LocalHighlights2012 = −0.102804` now reads **−10** and `LocalExposure2012 = −0.11` reads **−0.44**. On the street sample, Glow reads **34**. No drawn value carries more than two decimals.
 - On-screen text is measured facts (pass numbers, mask and control names, values, camera line) plus the editor's optional description; no generated wording.
+
+## Registered colour and Reel verification
+
+| Sample | Whole-frame mean RGB error, 0–255 | Mean ΔE2000 |
+|---|---:|---:|
+| Portrait sample | 15.90 → 7.91 | 8.22 → 4.50 |
+| Street sample | 13.43 → 12.87 | 7.86 → 7.46 |
+| Outdoor portrait sample | 17.41 → 17.18 | 7.32 → 7.24 |
+| Indoor portrait sample | 6.59 → 6.51 | 2.97 → 2.94 |
+| Many-pass landscape sample | 12.08 → 11.99 | 8.59 → 8.54 |
+| Landscape sample without AI | 14.81 → 14.73 | 6.61 → 6.59 |
+
+- Each comparison uses the same registered crop for both builds. The portrait’s manually selected sky improved from 24.46 to 6.80/255. The outdoor portrait’s AI sky still measures 49.81/255 against the edited reference. The largest regional increase was 0.29/255 on the portrait subject. Anchoring white during local exposure reduced the outdoor sky from 49.64 to 4.87/255 in isolation, but raised the many-pass landscape’s whole-frame error from 12.08 to 12.20/255.
+- The master and channel curve changes passed the cross-sample threshold. Spline interpolation, alternate gamma, mixer widths, white balance and gradient or radial warping did not. Substituting Adobe’s global pass into the street baseline reduced final error from 13.43 to 10.02/255.
+- Fourteen exports covered Generative Remove, crop and straighten, brush, colour and luminance ranges, eleven passes, and a global-only edit. Tutorials ran 12–20 seconds. Each step used 0.5 seconds for its deck lift and 1.5–2.5 seconds for its controls.
+- Across 5,355 frames, the audits found zero unapproved strings, ASCII negative signs, dangling separators, slider-value mismatches or text outside the safe area. Tutorial guides used zero fill pulses. Maximum subject overlap was 4.27%. The landscape without AI used a hand-traced silhouette for this check. All decoded loop endpoints matched.
+- Both modes passed CJK, emoji and 60-character description checks for cover layout, caption opening and ASCII filenames. A synthetic brush correction exercised the recorded dabs in both exports. Brush warp accuracy remains unverified because no standalone brush correction was found among 3,666 sidecars.
