@@ -2,7 +2,7 @@
 export async function auditText(){
   const {data,frame}=await lrcReel.makeRenderer(),t=data.timeline;
   const passes=lrc.reelPasses(),input=document.querySelector('#reel-description').value.trim();
-  const cover=input || passes.length+(passes.length===1?' pass':' passes')+' → 1 frame';
+  const cover=input || 'Behind the edit';
   const source=new DOMParser().parseFromString(lrc.state.xmpText,'application/xml');
   const ns='http://ns.adobe.com/camera-raw-settings/1.0/';
   const descriptions=[...source.getElementsByTagNameNS('*','Description')];

@@ -1,5 +1,5 @@
 import { canExport, encodeReel } from './reel/encode.js';
-import { buildTimeline, compareFrames, pipelineHeadline, FPS, HEIGHT, WIDTH } from './reel/timeline.js';
+import { buildTimeline, compareFrames, DEFAULT_REEL_TITLE, FPS, HEIGHT, WIDTH } from './reel/timeline.js';
 import { createScene, loadReelFonts } from './reel/scene.js';
 
 import {isSubject,subjectFaces} from './reel/subject.js';
@@ -179,7 +179,7 @@ description.addEventListener('input', () => {
     const text=description.value.trim();
     for(const data of [prepared,prepared.tutorial].filter(Boolean)){
       data.timeline.description=text;
-      data.timeline.coverTitle=text || pipelineHeadline(prepared.timeline.scores.length);
+      data.timeline.coverTitle=text || DEFAULT_REEL_TITLE;
     }
   }
   clearPreview();

@@ -176,7 +176,7 @@ for(const mode of ['teaser','tutorial']){
       })()`);
       assert.deepEqual(copied,[description,true,true]);
     }
-    const title=description || '6 passes → 1 frame';
+    const title=description || 'Behind the edit';
     assert.ok(audit.strings.includes(title),'Cover text reaches the renderer');
   }
 }
@@ -233,7 +233,7 @@ assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').value,-10);
 assert.equal(measuredTitles.rows.find(r=>r.label==='Highlights').decimals,0);
 assert.equal(measuredTitles.globalRows.find(r=>r.label==='Contrast').value,13);
 assert.equal(measuredTitles.globalRows.find(r=>r.label==='Exposure').value,.12);
-assert.equal(measuredTitles.emptyCover,'0 passes → 1 frame');
+assert.equal(measuredTitles.emptyCover,'Behind the edit');
 console.log('MEASURED titles / mask weighting / rounded values pass');
 assert.equal(await evaluate("lrc.state.logs.some(s=>s.includes('AI raster alignment: off='))"),true,'Compile log must include both alignment scores');
 assert.ok(compiled.output.width>0);

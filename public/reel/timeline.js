@@ -122,7 +122,7 @@ export function measureChange(before, after, pass) {
     meanHueShift: hueWeight ? Math.atan2(sin, cos) * 180 / Math.PI : 0 };
 }
 
-export const pipelineHeadline=count=>count+(count===1?' pass':' passes')+' → 1 frame';
+export const DEFAULT_REEL_TITLE='Behind the edit';
 
 export function passLabel(pass) {
   return ['PASS '+pass.index,pass.name].filter(Boolean).join(' · ');
@@ -395,7 +395,7 @@ export function buildTimeline(original, passes, hasReference, description = '') 
   const also = skipped;
   cue('payoff', payoffBeats, 'photo', { also });
   cue('loop', 2, 'photo');
-  return { schedule, scores, duration: cursor * BEAT, chapterCount: chosen.length, hasReference, description, coverTitle: description || pipelineHeadline(passes.length) };
+  return { schedule, scores, duration: cursor * BEAT, chapterCount: chosen.length, hasReference, description, coverTitle: description || DEFAULT_REEL_TITLE };
 }
 
 function wholeFrameMask(pass) {
