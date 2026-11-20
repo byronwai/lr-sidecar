@@ -345,7 +345,7 @@ function showXMP(){
         .map(([key,value])=>`crs:${key}=${JSON.stringify(value)}`)
     ])
   ].join('\n');
-  $('#xmp-details').innerHTML=`<h4>Global settings</h4>${table(Object.entries(s.globals))}<h4>${s.corrections.length} corrections · stored XMP order</h4>${s.corrections.map(c=>`<details><summary>${escape(c.name)} · ${c.masks.length} component(s)</summary>${table(Object.entries(c).filter(([k])=>!['CorrectionMasks','masks','name'].includes(k)))}${jsonBlock(JSON.stringify(c.masks,null,2),'Mask components / JSON')}</details>`).join('')}<h4>RemoveAreas</h4>${jsonBlock(JSON.stringify(s.remove,null,2),'Remove areas / JSON')}`;
+  $('#xmp-details').innerHTML=`<h4>Global settings</h4>${table(Object.entries(s.globals))}<h4>${s.corrections.length} corrections · stored XMP order</h4>${s.corrections.map(c=>`<details><summary>${escape(c.name)} · ${c.masks.length} component(s)</summary>${table(Object.entries(c).filter(([k])=>!['CorrectionMasks','masks','name'].includes(k)))}${jsonBlock(JSON.stringify(c.masks,null,2),'Mask components / JSON')}</details>`).join('')}<h4>Remove patches</h4>${jsonBlock(JSON.stringify(s.remove,null,2),'Remove areas / JSON')}`;
 }
 function showACR(){
   if(!state.acr)return;

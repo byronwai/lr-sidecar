@@ -95,9 +95,13 @@ export function parseXMP(input, Parser=globalThis.DOMParser){
   if(!desc)throw new Error('No Camera Raw settings found');
   const raw=resource(desc),
   corrections=raw.MaskGroupBasedCorrections||[],
-  remove=raw.RemoveAreas||[];
-  if(!Array.isArray(corrections)||!Array.isArray(remove))throw new Error('Invalid XMP correction sequence');
-  const globals=Object.fromEntries(Object.entries(raw).filter(([k])=>!['MaskGroupBasedCorrections','RemoveAreas'].includes(k)));
+  removeAreas=raw.RemoveAreas||[],
+  retouchAreas=raw.RetouchAreas||[];
+  if(![corrections,removeAreas,retouchAreas].every(Array.isArray))throw new Error('Invalid XMP correction sequence');
+  // Lightroom also stores baked Remove patches in RetouchAreas. That sequence
+  // can contain traditional heal/clone spots, which have no ACR patch to render.
+  const remove=[...removeAreas,...retouchAreas.filter(r=>r.pm_patch||r.pm_patch_mask)];
+  const globals=Object.fromEntries(Object.entries(raw).filter(([k])=>!['MaskGroupBasedCorrections','RemoveAreas','RetouchAreas'].includes(k)));
   const lensNode=all(tree,'aux:LensDistortInfo')[0];
   const lensText=all(tree,'rdf:Description').map(n=>n.attrs['aux:LensDistortInfo']).find(v=>v!=null)??lensNode?.text;
   const coefficients=String(lensText??'').trim().split(/\s+/).map(s=>{

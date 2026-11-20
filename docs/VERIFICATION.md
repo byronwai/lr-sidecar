@@ -4,6 +4,22 @@ The lens measurements use two sample edits: a night portrait on a Sony FE 20-70 
 
 ## Lens alignment of AI masks
 
+### RetouchAreas removal import (2026-11-20)
+
+- DSC06771 from the `D:\anzu` set stores its Firefly removal in `RetouchAreas`,
+  not `RemoveAreas`. The importer now reads patch-backed entries from both;
+  traditional heal/clone spots without a baked patch are not sent to the patch renderer.
+- The chosen patch and blend mask resolve to the supplied ACR records. The
+  upper-left branch is removed in the compiled image and the final frames of
+  both Reel renderers, tested without the optional edited JPG. The page now has
+  nine passes, including Generative Remove. The small removal remains below the
+  Reel chapter-selection threshold but is included in the cumulative images.
+- Node checks cover both sequences, mixed patch and traditional spots, numeric
+  digest preservation and invalid sequences. The full browser suite passes,
+  including JXL decode, H.264 export, crop animation and reference-JPG controls.
+- Patch colour matching remains approximate; importing this record does not
+  make the compiled image identical to Lightroom's exported JPG.
+
 Sony's camera JPEG has in-camera distortion correction applied, while Lightroom stores AI mask rasters in the uncorrected sensor frame. The compiler maps raster lookups through `aux:LensDistortInfo`. In Auto mode, it compares mask-edge and image-edge correlation with and without the warp, and uses the warp only if it wins by a clear margin.
 
 | Sample | Correlation, no warp | Correlation, warp | Auto decision |

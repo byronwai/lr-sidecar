@@ -139,6 +139,22 @@ for(const r of acr.records){
   }
 }
 const xmp=parseXMP(sidecar,null),usage=recordUsage(xmp);
+// Baked Remove patches can live in either sequence; traditional heal spots
+// must not become patch passes or require nonexistent ACR records.
+const patchID='00000000000000000000000000000001', maskID='00000000000000000000000000000002';
+const patchXML=`<rdf:li><rdf:Description crs:SpotType="heal_patchmatch" crs:fill_method="firefly" crs:pm_patch="${patchID}" crs:pm_patch_mask="${maskID}"/></rdf:li>`;
+const removeXML=body=>`<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="0">${body}</rdf:Description></rdf:RDF></x:xmpmeta>`;
+for(const key of ['RemoveAreas','RetouchAreas']){
+  const parsed=parseXMP(removeXML(`<crs:${key}><rdf:Seq>${patchXML}</rdf:Seq></crs:${key}>`),null);
+  assert.equal(parsed.remove.length,1);
+  assert.equal(parsed.remove[0].pm_patch,patchID);
+  assert.deepEqual([...recordUsage(parsed).keys()],[patchID,maskID]);
+  assert.ok(!(key in parsed.globals));
+  assert.equal(parsed.raw[key].length,1);
+}
+const mixedRemove=parseXMP(removeXML(`<crs:RemoveAreas><rdf:Seq>${patchXML}</rdf:Seq></crs:RemoveAreas><crs:RetouchAreas><rdf:Seq><rdf:li crs:SpotType="heal"/>${patchXML.replace(patchID,'00000000000000000000000000000003')}</rdf:Seq></crs:RetouchAreas>`),null);
+assert.equal(mixedRemove.remove.length,2,'Both patch sequences survive; traditional spots are excluded');
+assert.throws(()=>parseXMP(removeXML('<crs:RetouchAreas>invalid</crs:RetouchAreas>'),null),/Invalid XMP correction sequence/);
 assert.equal(xmp.lensDistort.length,4,'Sony lens rationals must survive the Node parser');
 assert.ok(Math.abs(xmp.lensDistort[0]-.957925736)<1e-8);
 const lensXML=(field,xmlns='xmlns:aux="http://ns.adobe.com/exif/1.0/aux/"')=>`<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" ${xmlns} crs:Exposure2012="0" ${field}/></rdf:RDF></x:xmpmeta>`;
