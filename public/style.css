@@ -170,7 +170,7 @@ header>.annotation {
 }
 .slots {
   display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-template-columns:repeat(4,minmax(0,1fr));
   gap:12px;
 }
 .slot {
@@ -203,12 +203,6 @@ header>.annotation {
 }
 .slot.failed b {
   color:var(--error);
-}
-.reference-slot {
-  margin-top:10px;
-  padding-top:8px;
-  font-size:11px;
-  grid-template-columns:135px 1fr;
 }
 .reference-slot small {
   grid-column:2;
