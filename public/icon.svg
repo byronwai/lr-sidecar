@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>LR Sidecar Compiler</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1424"/>
+      <stop offset="1" stop-color="#04070f"/>
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7d93ff"/>
+      <stop offset="1" stop-color="#4d6bfe"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="#2b394f" stroke-width="4"/>
+  <!-- the slice stack: passes in compositing order, bottom to top -->
+  <path d="M256 300 L408 368 L256 436 L104 368 Z" fill="#3a2a1f" stroke="#ffa24a" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M256 214 L408 282 L256 350 L104 282 Z" fill="#2c2546" stroke="#b98cff" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M256 92 L408 160 L256 228 L104 160 Z" fill="url(#top)" stroke="#c4d4ff" stroke-width="10" stroke-linejoin="round"/>
+  <!-- the photo on the top slice -->
+  <circle cx="296" cy="146" r="17" fill="#edf3ff"/>
+  <path d="M168 168 L222 140 L262 168 L290 154 L344 178 L256 214 Z" fill="#04070f" fill-opacity=".55"/>
+</svg>

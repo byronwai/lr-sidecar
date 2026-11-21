@@ -1,4 +1,6 @@
-# LR Sidecar Compiler
+<p align="center"><img src="public/icon.svg" width="112" alt=""></p>
+
+<h1 align="center">LR Sidecar Compiler</h1>
 
 **Rebuild a Lightroom edit layer by layer, in your browser.**
 
