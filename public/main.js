@@ -262,12 +262,13 @@ function buildGroups(){
     names=active.map(m=>m.MaskName||m.What.replace('Mask/',''));
     const color=/主體|主体|人物|人像|subject|person|people/i.test(names.join(' '))?'#ffa24a':/背景|background/i.test(names.join(' '))?'#e4c46a':/天空|sky/i.test(names.join(' '))?'#68d9e8':/植被|植物|vegetation/i.test(names.join(' '))?'#5ee08a':'#5aa9ff',
     lines=[correctionSummary(c)];
-    if(!rasters.size&&groups.at(-1).kind==='parametric'){
-      groups.at(-1).corrections.push(index);
-      groups.at(-1).parameters.push(...lines);
-    }
-    else groups.push({
-      name:ai?maskExpression(active,m=>m.MaskName||'AI'):rasters.size?'AI + parametric masks':'Parametric masks',
+    // One pass per correction, parametric ones included, so each mask gets its own slice.
+    const parametricName=()=>{
+      const expression=maskExpression(active,m=>m.MaskName||m.What.replace('Mask/',''));
+      return expression&&expression.length<=48?expression:(c.name||'Parametric mask');
+    };
+    groups.push({
+      name:ai?maskExpression(active,m=>m.MaskName||'AI'):rasters.size?'AI + parametric masks':parametricName(),
       kind:ai?'ai':rasters.size?'mixed':'parametric',
       color:ai?color:'#b98cff',
       source:rasters.size?`ACR · ${rasters.size} raster(s)${ai?'':' + XMP mask geometry'}`:'XMP · recomputed each render',

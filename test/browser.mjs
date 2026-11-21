@@ -130,7 +130,7 @@ const layoutCheck=`(()=>{
   return {visible:params.every(el=>getComputedStyle(el).overflowY==='visible'&&el.scrollHeight<=el.clientHeight+1),
     separated:labels.every((r,i)=>!i||r.top>=labels[i-1].bottom+10),
     fullGlobals:params[0].textContent.includes('HSL sat:')&&params[0].textContent.includes('straighten'),
-    fullParametrics:params.at(-1).textContent.includes('Glow')&&params.at(-1).textContent.includes('luma range')};
+    fullParametrics:params.some(el=>el.textContent.includes('Glow'))&&params.some(el=>el.textContent.includes('luma range'))};
 })()`;
 await evaluate('document.fonts.ready.then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))');
 assert.equal(await evaluate("document.querySelector('.stack-toggle').getAttribute('aria-expanded')"),'false');
