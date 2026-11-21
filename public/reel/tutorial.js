@@ -117,7 +117,7 @@ export function buildTutorialTimeline({original,compiled,reference,timeline},set
   const g=settings.globals;
   const crop=g.HasCrop?['CropAngle','CropLeft','CropTop','CropRight','CropBottom'].filter(k=>g[k]!=null).map(k=>k+' '+String(g[k]).replace(/^-/,'−')):[];
   return {mode:'tutorial',schedule,steps,all,duration,description:timeline.description,coverTitle:timeline.coverTitle,
-    camera:cameraLine(settings.camera,arw.ifds),lens:settings.lensModel||arw.ifds?.find(i=>i.tags[42036])?.tags[42036],crop};
+    camera:cameraLine({...arw.camera,...settings.camera},arw.ifds),lens:settings.lensModel||arw.lens||arw.ifds?.find(i=>i.tags[42036])?.tags[42036],crop};
 }
 
 export function tutorialCaption(t,indices=t.steps.map(s=>s.number)) {

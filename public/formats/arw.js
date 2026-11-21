@@ -4,7 +4,7 @@ import {
   array
 } from './tiff.js';
 import { readSonyWhiteBalance } from './wb.js';
-function jpegEnd(bytes, start) {
+export function jpegEnd(bytes, start) {
   let p = start + 2;
   while (p + 1 < bytes.length) {
     if (bytes[p++] !== 255) continue;
@@ -85,6 +85,7 @@ export function parseARW(input) {
   const capturedAt = dateTag ? String.fromCharCode(...array(dateTag).slice(0, 19))
     .replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T') : null;
   return {
+    format: 'ARW',
     capturedAt,
     byteOrder:tiff.byteOrder,
     ifds:tiff.ifds,

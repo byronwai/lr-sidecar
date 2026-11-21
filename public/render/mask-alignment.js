@@ -54,8 +54,13 @@ export function scoreAlignment(image,mask,width,height,k){
   const margin=Math.max(.01,Math.abs(off)*.08);
   return {off,warp,margin,apply:warp>.05&&warp-off>margin};
 }
-export function detectMaskAlignment(preview,settings,rasters){
-  if(!settings.lensDistort)return {apply:false,reason:'No valid LensDistortInfo',off:null,warp:null};
+export function detectMaskAlignment(preview,settings,rasters,lensCorrections){
+  const distortion=lensCorrections?.DistortionCorrection;
+  if(!settings.lensDistort){
+    const reason=distortion==='On'?'camera corrected, coefficients unknown':
+      distortion==='Off'?'Camera distortion correction Off; no LensDistortInfo':'No valid LensDistortInfo';
+    return {apply:false,reason,off:null,warp:null};
+  }
   let chosen;
   for(const c of settings.corrections)for(const m of c.masks){
     if(m.What!=='Mask/Image'||m.MaskActive===false)continue;
@@ -78,5 +83,11 @@ export function detectMaskAlignment(preview,settings,rasters){
   const data=ctx.getImageData(0,0,width,height).data;
   const mask=Float32Array.from({length:width*height},(_,i)=>data[i*4]/255);
   const result=scoreAlignment(image,mask,width,height,settings.lensDistort);
+  if(distortion==='Off'){
+    // Overrule an explicitly uncorrected camera JPEG only on stronger evidence.
+    result.margin*=2;
+    result.apply=result.warp>.1&&result.warp-result.off>result.margin;
+    return {...result,id:r.id,width,height,reason:result.apply?'Strong correlation overrides camera distortion Off':'Camera distortion Off; insufficient evidence to warp'};
+  }
   return {...result,id:r.id,width,height,reason:result.apply?'Warp correlation wins by a clear margin':'Off wins or correlation is ambiguous'};
 }

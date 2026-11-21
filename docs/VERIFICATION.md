@@ -2,6 +2,12 @@
 
 The lens measurements use two sample edits: a night portrait on a Sony FE 20-70 mm F4 G, and a street scene on a Tamron 35-150 mm. The exported Reel review also includes outdoor and indoor portrait samples. The samples are not distributed. Run the [tests](../README.md#tests) against your own ARW + XMP + ACR.
 
+## Canon CR3
+
+With a Canon R50 sample, track 1 held a 6000 × 4000 JPEG of 3,613,893 bytes at offset 500,224. The other previews measured 1620 × 1080 and 160 × 120. The browser input matched an independent decode of track 1 at orientation 1. CTMD ColorData v48 gave 5200 K and RGGB levels of 1777/1024/1024/1736. Peripheral lighting, chromatic aberration correction and digital lens optimization were on. Distortion correction was off.
+
+An in-memory XMP applied exposure +0.3, contrast +10, a red curve and one linear gradient. The slice stack rendered both passes. The Teaser and Tutorial exported at 1080 × 1920 with 255 and 360 frames respectively. The Tutorial source card showed “50mm · f/5 · 1/250s · ISO 100” and “RF50mm F1.8 STM”. The sample had no matching Lightroom sidecars, so the Canon AI mask coordinate frame and the ACR source tag remain unverified.
+
 ## Lens alignment of AI masks
 
 ### RetouchAreas removal import (2026-11-20)

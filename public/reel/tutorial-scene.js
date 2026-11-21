@@ -271,7 +271,7 @@ export function createTutorialScene(ctx,data) {
   }
   const lines=headlineLayout(ctx,t.coverTitle);
   const cover=placement(SAFE.w,55+lines.length*lines[0].size,subject,true);
-  const sourceLines=[t.camera,t.lens,'LIGHTROOM',data.hasACR?'ARW + XMP + ACR':'ARW + XMP'].filter(Boolean)
+  const sourceLines=[t.camera,t.lens,'LIGHTROOM',`${arw.format || 'ARW'} + XMP${data.hasACR?' + ACR':''}`].filter(Boolean)
     .flatMap(text=>labelLines(ctx,text,836,mono(32)));
   const source=placement(884,44+sourceLines.length*48,subject);
   const slab=placement(884,84,subject);

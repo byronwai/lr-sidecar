@@ -1,6 +1,7 @@
 import {
   parseARW
 } from './formats/arw.js';
+import { parseCR3 } from './formats/cr3.js';
 import {
   parseACR,
   inflateReceipt
@@ -17,7 +18,7 @@ let preview=null,arw=null,rasters=new Map(),pipeline=null,outputs=new Map(),sett
 let alignmentCache=null;
 function rasterAlignment(message){
   const key=JSON.stringify([message.settings.lensDistort,message.settings.corrections.map(c=>c.masks)]);
-  if(alignmentCache?.key!==key)alignmentCache={key,result:detectMaskAlignment(preview,message.settings,rasters)};
+  if(alignmentCache?.key!==key)alignmentCache={key,result:detectMaskAlignment(preview,message.settings,rasters,arw.lensCorrections)};
   const result=alignmentCache.result,mode=message.rasterWarp||'auto';
   const apply=!!message.settings.lensDistort&&(mode==='warp'||(mode==='auto'&&result.apply));
   send('mask-alignment',{job:message.job,report:{...result,mode,enabled:apply}});
@@ -256,7 +257,7 @@ async function tutorialSources({job, groups, rasterEdges, rasterWarp}) {
 }
 
 async function compile(message){
-  if(!preview)throw new Error('Read ARW before compiling');
+  if(!preview)throw new Error('Read RAW before compiling');
   settings=message.settings;
   const lensDistort=rasterAlignment(message);
   const {
@@ -423,8 +424,7 @@ onmessage=async event=>{
       preview?.close();
       preview=null;
       arw=null;
-      const result=parseARW(m.buffer);
-      arw=result;
+      const result=m.format==='CR3'?parseCR3(m.buffer):parseARW(m.buffer);
       preview=await createImageBitmap(new Blob([result.jpeg],{
         type:'image/jpeg'
       }),{
@@ -436,6 +436,7 @@ onmessage=async event=>{
         jpeg,
         ...report
       }=result;
+      arw=report;
       send('arw',{
         job,
         report,

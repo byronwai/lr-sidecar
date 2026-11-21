@@ -6,6 +6,7 @@ const widths = {
   4: 4,
   5: 8,
   7: 1,
+  8: 2,
   9: 4,
   10: 8,
   13: 4
@@ -13,7 +14,7 @@ const widths = {
 export function bytesOf(input) {
   return input instanceof Uint8Array ? input : new Uint8Array(input);
 }
-export function readTIFF(input) {
+export function readTIFF(input, { singleDirectory = false } = {}) {
   const bytes = bytesOf(input),
   view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const check = (offset, length) => {
@@ -39,7 +40,8 @@ export function readTIFF(input) {
     if (depth > 16 || ifds.length > 256) throw new Error('TIFF IFD nesting limit');
     visited.add(offset);
     const count = u16(offset);
-    check(offset + 2, count * 12 + 4);
+    // CTMD embeds standalone directories without a next-IFD word.
+    check(offset + 2, count * 12 + (singleDirectory ? 0 : 4));
     const entries = [],
     tags = {};
     for (let i = 0; i < count; i++) {
@@ -65,6 +67,7 @@ export function readTIFF(input) {
       }, (_, j) => {
         const q = at + j * widths[type];
         if (type === 3) return u16(q);
+        if (type === 8) return view.getInt16(q, le);
         if (type === 4 || type === 13) return u32(q);
         if (type === 9) return view.getInt32(q, le);
         if (type === 5 || type === 10) return u32(q) / (u32(q + 4) || 1);
@@ -80,7 +83,7 @@ export function readTIFF(input) {
       });
       tags[tag] = value;
     }
-    const next = u32(offset + 2 + count * 12),
+    const next = singleDirectory ? 0 : u32(offset + 2 + count * 12),
     ifd = {
       name,
       offset,
@@ -89,6 +92,7 @@ export function readTIFF(input) {
       next
     };
     ifds.push(ifd);
+    if (singleDirectory) return;
     for (const t of [0x14a, 0x8769, 0x8825]) {
       for (const [i, sub] of array(tags[t]).entries()) walk(sub, `${name}/${t === 0x14a ? 'SubIFD' : 'metadata'}${i}`,
       depth + 1);

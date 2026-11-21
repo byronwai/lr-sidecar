@@ -134,11 +134,12 @@ $('#compare').addEventListener('input',event=>{
 $('.wave-strip').innerHTML=Array.from({length:80},(_,i)=>`<i style="--bar:${i};--peak:${2+Math.round(6*Math.abs(Math.sin(i*1.71)))}"></i>`).join('');
 legend();
 function fail(name,message){
+  const label=name==='arw'?'RAW':name.toUpperCase();
   state.errors[name]=message;
   stage(name,'failed',message);
   slot(name,'failed',message);
-  const next=name==='compile'?'Try Compile again, or check the source files below.':`Choose a valid ${name.toUpperCase()} file from the same edit.`;
-  $('#status').textContent=`${name.toUpperCase()}: ${message} ${next}`;
+  const next=name==='compile'?'Try Compile again, or check the source files below.':`Choose a valid ${label} file from the same edit.`;
+  $('#status').textContent=`${label}: ${message} ${next}`;
   log(`ERROR [${name}] ${message}`);
   const el=$(`#${name}-details`);
   if(el){
@@ -244,7 +245,7 @@ function buildGroups(){
     name:'Global settings',
     kind:'globals',
     color:'#5aa9ff',
-    source:'ARW preview × XMP globals',
+    source:'RAW preview × XMP globals',
     parameters
   }];
   if(state.settings.remove.length)groups.push({
@@ -286,7 +287,7 @@ function sourceMismatch(){
   const xmp=state.settings?.capturedAt?.slice(0,19);
   const timestamp=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
   if(timestamp.test(arw)&&timestamp.test(xmp)&&arw.slice(0,10)!==xmp.slice(0,10)){
-    return `Capture dates differ · ARW ${arw.replace('T',' ')} · XMP ${xmp.replace('T',' ')}. Choose the ARW from the XMP capture date.`;
+    return `Capture dates differ · ${state.arw.format} ${arw.replace('T',' ')} · XMP ${xmp.replace('T',' ')}. Choose the RAW from the XMP capture date.`;
   }
 }
 function updateReady(){
@@ -314,7 +315,7 @@ function updateReady(){
   if(edges)edges.disabled=busy;
   if(mismatch){
     $('#status').textContent=mismatch;
-    stage('compile','failed','ARW and XMP capture dates differ');
+    stage('compile','failed','RAW and XMP capture dates differ');
   }else if(missing.length){
     $('#status').textContent=`Missing ACR raster: ${missing.join('; ')}. Choose the ACR sidecar for this XMP.`;
     stage('compile','failed',`Missing ${missing.length} referenced raster(s)`);
@@ -409,6 +410,18 @@ function invalidate(){
   }
   stage('compile','','waiting');
 }
+function cr3Details(report){
+  function tree(boxes){
+    return '<ul>'+boxes.map(b=>`<li>${escape(b.type)} ${escape(b.uuid)} · ${b.size} B @ ${b.offset}${b.children?tree(b.children):''}</li>`).join('')+'</ul>';
+  }
+  return `<h4>${escape(report.camera.Model)} · ${escape(report.lens)}</h4>
+    ${table(Object.entries(report.camera))}
+    <h4>Lens corrections</h4>${table(Object.entries(report.lensCorrections))}
+    <h4>JPEG previews · chosen ${escape(report.chosen.source)}</h4>
+    ${table(report.previews.map(p=>[p.source,p.width,p.height,p.offset,p.length]),['Source','Width','Height','Offset','Bytes'])}
+    <h4>Tracks</h4>${table(report.tracks.map(t=>[t.id,t.codec,t.offset,t.length]),['Track','Codec','Offset','Bytes'])}
+    <h4>ISO BMFF box tree</h4>${tree(report.boxes)}`;
+}
 async function loadOne(file,extension){
   if(extension==='jpg'){
     // Decode before replacing the previous JPG. A bad optional file must not
@@ -458,7 +471,7 @@ async function loadOne(file,extension){
     else {
       const buffer=await file.arrayBuffer(),
       result=await request(extension,{
-        buffer
+        buffer,format:file.name.split('.').pop().toUpperCase()
       },[buffer]);
       state[extension]=result.report;
       stage(extension,'ready',extension==='arw'?'preview extracted':`${result.report.count} records decoded`,result.ms);
@@ -468,15 +481,17 @@ async function loadOne(file,extension){
         draw($('#input'),result.bitmap);
         $('#input-name').textContent=file.name;
         const wb=r.whiteBalance;
-        const wbText=`as-shot WB: ${wb.estimated?'estimated ':''}≈${Math.round(wb.kelvin)} K${wb.estimated?'':' (SR2-derived)'}`;
+        const canon=r.format==='CR3';
+        const wbText=canon&&!wb.estimated?`as-shot WB: ${wb.kelvin} K (${wb.method})`:
+          `as-shot WB: ${wb.estimated?'estimated ':''}≈${Math.round(wb.kelvin)} K${wb.estimated?'':' (SR2-derived)'}`;
         $('#input-facts').textContent=`${r.chosen.width} × ${r.chosen.height} JPEG · ${fmtSize(r.chosen.length)} · orientation ${r.orientation} · ${wbText}`;
-        $('#arw-details').innerHTML=`<p>${escape(r.byteOrder)} endian · ${r.previews.length} JPEG preview(s) · chosen ${escape(r.chosen.source)}</p>${r.sensor.map(s=>`<p>Ignored sensor data: ${s.width} × ${s.height} · ${fmtSize(s.bytes)}</p>`).join('')}${r.ifds.map(ifd=>`<h4>${escape(ifd.name)} @ ${ifd.offset} → ${ifd.next||'end'}</h4>${table(ifd.entries.map(e=>[tagName(e.tag),e.type,e.count,e.value??'unsupported']),['Tag','Type','Count','Value'])}`).join('')}`;
-        $('#arw-details').insertAdjacentHTML('afterbegin',`<h4>${escape(wbText)}</h4>${table(Object.entries(wb))}<p>CCT comes from camera Kelvin presets. Tint is an approximate log-gain proxy; the private colour matrix is reported without assuming its colour-space basis.</p>`);
+        $('#arw-details').innerHTML=canon?cr3Details(r):`<p>${escape(r.byteOrder)} endian · ${r.previews.length} JPEG preview(s) · chosen ${escape(r.chosen.source)}</p>${r.sensor.map(s=>`<p>Ignored sensor data: ${s.width} × ${s.height} · ${fmtSize(s.bytes)}</p>`).join('')}${r.ifds.map(ifd=>`<h4>${escape(ifd.name)} @ ${ifd.offset} → ${ifd.next||'end'}</h4>${table(ifd.entries.map(e=>[tagName(e.tag),e.type,e.count,e.value??'unsupported']),['Tag','Type','Count','Value'])}`).join('')}`;
+        $('#arw-details').insertAdjacentHTML('afterbegin',`<h4>${escape(wbText)}</h4>${table(Object.entries(wb))}${canon?'':'<p>CCT comes from camera Kelvin presets. Tint is an approximate log-gain proxy; the private colour matrix is reported without assuming its colour-space basis.</p>'}`);
         log(`${wbText} · ${wb.method}${wb.reason?` · ${wb.reason}`:''}`);
       }
     }
     showACR();
-    log(`${extension.toUpperCase()} parsed · ${file.name}`);
+    log(`${extension==='arw'?state.arw.format:extension.toUpperCase()} parsed · ${file.name}`);
   }catch(error){
     fail(extension,error.message);
     throw error;
@@ -489,9 +504,9 @@ async function loadFiles(files){
   recognised=[];
   const seen=new Set();
   for(const f of list){
-    const suffix=f.name.split('.').pop().toLowerCase(),ext=suffix==='jpeg'?'jpg':suffix;
-    if(!['arw','xmp','acr','jpg'].includes(ext))throw new Error(`Unsupported file ${f.name}; choose ARW, XMP, ACR and optional JPG`);
-    if(seen.has(ext))throw new Error(`Choose one ${ext.toUpperCase()} per edit`);
+    const suffix=f.name.split('.').pop().toLowerCase(),ext=suffix==='jpeg'?'jpg':suffix==='cr3'?'arw':suffix;
+    if(!['arw','xmp','acr','jpg'].includes(ext))throw new Error(`Unsupported file ${f.name}; choose ARW or CR3, XMP, ACR and optional JPG`);
+    if(seen.has(ext))throw new Error(`Choose one ${ext==='arw'?'RAW file':ext.toUpperCase()} per edit`);
     seen.add(ext);
     recognised.push([f,ext]);
   }
@@ -527,7 +542,7 @@ async function loadFiles(files){
 async function compile(){
   await inspectQueue;
   if(state.compiling||state.loading||state.reelExporting)throw new Error('Wait for the current operation');
-  if(!state.arw||!state.settings)throw new Error('Load ARW and XMP first');
+  if(!state.arw||!state.settings)throw new Error('Load RAW and XMP first');
   const mismatch=sourceMismatch();
   if(mismatch)throw new Error(mismatch);
   const missing=validateBindings();
@@ -570,7 +585,7 @@ async function compile(){
       urls.push(url);
       const a=$('#'+id);
       a.href=url;
-      a.download=`${state.files.arw.name.replace(/\.arw$/i,'')}-compiled.${ext}`;
+    a.download=`${state.files.arw.name.replace(/\.(arw|cr3)$/i,'')}-compiled.${ext}`;
       a.classList.remove('disabled');
       a.setAttribute('aria-disabled','false');
     }
