@@ -324,7 +324,8 @@ function allocateBeats(groups) {
 
 export function groupChapter(groups, item) {
   const last = groups.at(-1);
-  if (last && last.category === item.category && item.i - last.end.i <= 2) {
+  // Each parametric mask keeps its own chapter, matching its own slice.
+  if (last && last.category === item.category && item.i - last.end.i <= 2 && item.pass.kind !== 'parametric') {
     last.end = item;
     if (item.score > last.hero.score) last.hero = item;
     last.items.push(item);
