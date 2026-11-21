@@ -276,8 +276,21 @@ function buildGroups(){
       parameters:lines
     });
   });
-  return groups;
+  // Split parametric masks while the stack stays readable. Past MAX_SPLIT_PASSES
+  // slices, fold consecutive parametric corrections back into one pass.
+  if(groups.length<=MAX_SPLIT_PASSES)return groups;
+  return groups.reduce((merged,g)=>{
+    const last=merged.at(-1);
+    if(g.kind==='parametric'&&last?.kind==='parametric'){
+      last.name='Parametric masks';
+      last.corrections.push(...g.corrections);
+      last.parameters.push(...g.parameters);
+    }
+    else merged.push(g);
+    return merged;
+  },[]);
 }
+const MAX_SPLIT_PASSES=8;
 function validateBindings(){
   if(!state.settings)return [];
   const ids=new Set((state.acr?.records||[]).filter(r=>r.kind==='raster').map(r=>r.id));
