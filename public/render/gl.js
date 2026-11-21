@@ -5,7 +5,9 @@ import {
   removeShader,
   maskShader,
   copyShader,
+  blurShader,
   adjustmentUniforms,
+  calibrationUniforms,
   curveLUT,
   bands
 } from './passes.js';
@@ -35,6 +37,7 @@ export class Pipeline {
     this.remove=this.program(removeShader);
     this.mask=this.program(maskShader);
     this.copy=this.program(copyShader);
+    this.blur=this.program(blurShader);
     this.input=this.texture(bitmap);
     this.zero=this.texture(new Uint8Array([0,0,0,255]),1,1);
     this.white=this.texture(new Uint8Array([255,255,255,255]),1,1);
@@ -169,22 +172,60 @@ export class Pipeline {
     const {mode,data}=curveLUT(settings,local);
     return {mode,texture:data?this.texture(data,1024,1):this.white};
   }
+  drawAdjustments(program,target,values,textures){
+    const [,clarity,texture]=values.detail;
+    if(values.glow)values.glowStep=[1/this.width,1/this.height];
+    if(!texture&&!clarity)return this.draw(program,target,values,textures);
+    let source=textures.image;
+    let width=source===this.input?this.previewWidth:this.width;
+    let height=source===this.input?this.previewHeight:this.height;
+    let level=null;
+    const blurs=[];
+    try{
+      for(const [active,name,edge] of [[texture,'fineBlur',1024],[clarity,'broadBlur',160]]){
+        if(!active)continue;
+        // Each bilinear 2:1 reduction averages the previous level's footprint.
+        while(Math.max(width,height)>edge*1.5){
+          width=Math.max(1,Math.ceil(width/2));
+          height=Math.max(1,Math.ceil(height/2));
+          const next=this.target(width,height);
+          this.draw(this.copy,next,{}, {image:source});
+          if(level)this.release(level);
+          level=next;
+          source=level.texture;
+        }
+        const step=Math.max(width,height)/edge;
+        const horizontal=this.target(width,height),vertical=this.target(width,height);
+        blurs.push(vertical);
+        try{
+          this.draw(this.blur,horizontal,{direction:[step/width,0]}, {image:source});
+          this.draw(this.blur,vertical,{direction:[0,step/height]}, {image:horizontal.texture});
+        }finally{this.release(horizontal);}
+        textures[name]=vertical.texture;
+      }
+      this.draw(program,target,values,textures);
+    }finally{
+      if(level)this.release(level);
+      for(const blur of blurs)this.release(blur);
+    }
+  }
   globals(source,g,asShot){
     const out=this.target(),
     curve=this.curve(g),
-    grade=(prefix,hue,sat,l)=>[num(g,hue)/360,num(g,sat)/100,num(g,l)/100,0];
-    this.draw(this.global,out,{
+    grade=(hue,sat,l,lumStops=1)=>[num(g,hue)/360,num(g,sat)/100,num(g,l)*lumStops/100,0];
+    this.drawAdjustments(this.global,out,{
       ...adjustmentUniforms(g),
+      ...calibrationUniforms(g),
+      parametricHighlights:[num(g,'ParametricHighlights')/100,Math.min(.99999,clamp(num(g,'ParametricHighlightSplit',75)/100))],
       curveMode:curve.mode,
       whiteBalance: relativeWhiteBalance(asShot, g).gains,
       displayReferred:true,
-      texel:[1/this.width,1/this.height],
       hsl:bands.flatMap(b=>['Hue','Saturation','Luminance'].map(k=>num(g,k+'Adjustment'+b)/100)),
       vibrance:num(g,'Vibrance')/100,
-      gradeShadow:grade('','SplitToningShadowHue','SplitToningShadowSaturation','ColorGradeShadowLum'),
-      gradeMid:grade('','ColorGradeMidtoneHue','ColorGradeMidtoneSat','ColorGradeMidtoneLum'),
-      gradeHigh:grade('','SplitToningHighlightHue','SplitToningHighlightSaturation','ColorGradeHighlightLum'),
-      gradeGlobal:grade('','ColorGradeGlobalHue','ColorGradeGlobalSat','ColorGradeGlobalLum'),
+      gradeShadow:grade('SplitToningShadowHue','SplitToningShadowSaturation','ColorGradeShadowLum',4),
+      gradeMid:grade('ColorGradeMidtoneHue','ColorGradeMidtoneSat','ColorGradeMidtoneLum'),
+      gradeHigh:grade('SplitToningHighlightHue','SplitToningHighlightSaturation','ColorGradeHighlightLum'),
+      gradeGlobal:grade('ColorGradeGlobalHue','ColorGradeGlobalSat','ColorGradeGlobalLum'),
       gradeMix:[num(g,'SplitToningBalance')/100,num(g,'ColorGradeBlending',50)/100]
     },{
       image:source,
@@ -279,7 +320,9 @@ export class Pipeline {
         values.geometry=[this.width/this.height,0,0,0];
         values.radial=[num(m,'Angle'),num(m,'Midpoint',50),num(m,'Roundness'),0];
         values.feather=Math.max(.001,num(m,'Feather',50)/100);
-        values.flipped=m.Flipped===true;
+        // Current XMP records the radial's polarity in both fields. Apply the
+        // explicit component inversion once. Older radials only have Flipped.
+        values.flipped=m.MaskInverted!=null || m.Flipped===true;
       }
       else if(type==='Mask/RangeMask'){
         const r=m.CorrectionRangeMask||{};
@@ -338,12 +381,11 @@ export class Pipeline {
   correction(source,c,mask){
     const out=this.target(),
     curve=this.curve(c,true);
-    this.draw(this.local,out,{
+    this.drawAdjustments(this.local,out,{
       ...adjustmentUniforms(c,true),
       curveMode:curve.mode,
       whiteBalance:[1,1,1],
       displayReferred:false,
-      texel:[1/this.width,1/this.height],
       amount:num(c,'CorrectionAmount',1)
     },{
       image:source,

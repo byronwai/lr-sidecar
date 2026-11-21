@@ -14,6 +14,23 @@ export async function colorRegressionChecks(evaluate){
     const y=a=>a.slice(0,3).reduce((s,v,i)=>s+linear(v)*[.2126,.7152,.0722][i],0);
     try{
       const neutral=read(p.globals(p.input,{}));
+      const keys=['ShadowTint','RedHue','RedSaturation','GreenHue','GreenSaturation','BlueHue','BlueSaturation'];
+      const zero=Object.fromEntries(keys.map(k=>[k,0]));
+      const calibrated=read(p.globals(p.input,{RedHue:-20,GreenHue:15,BlueSaturation:10}));
+      const tint=read(p.globals(p.input,{ShadowTint:50}));
+      // Exercise all seven fields on a chromatic source as well as the grey ramp.
+      const chart=new OffscreenCanvas(256,1),chartCtx=chart.getContext('2d');
+      const colors=chartCtx.createImageData(256,1);
+      for(let i=0;i<256;i++)colors.data.set([i,255-i,(i*3)%256,255],4*i);
+      chartCtx.putImageData(colors,0,0);
+      const chartInput=p.texture(chart),settings={Exposure2012:-.15,HueAdjustmentBlue:-20};
+      const before=read(p.globals(chartInput,settings)),after=read(p.globals(chartInput,{...settings,...zero}));
+      const calibration={
+        identical:before.every((v,i)=>v===after[i]),
+        grey:calibrated.every((v,i)=>Math.abs(v-neutral[i])<=1),
+        shadowTint:tint[64*4]>tint[64*4+1] && tint[240*4]===neutral[240*4],
+        responsive:keys.every(k=>read(p.globals(chartInput,{...settings,[k]:25})).some((v,i)=>Math.abs(v-before[i])>1))
+      };
       let identityError=0,maxLuminanceError=0,clippedHighlights=0;
       for(let i=0;i<ramp.data.length;i++)identityError=Math.max(identityError,Math.abs(neutral[i]-ramp.data[i]));
       for(const hue of [0,60,120,180,239,300]){
@@ -40,7 +57,7 @@ export async function colorRegressionChecks(evaluate){
       const negative=read(p.correction(p.input,{LocalExposure2012:-.25},m));
       let maskError=0;
       for(let i=0;i<ramp.data.length;i++)maskError=Math.max(maskError,Math.abs(zeroMask[i]-ramp.data[i]));
-      return {identityError,maxLuminanceError,clippedHighlights,exposures,maskError,
+      return {identityError,maxLuminanceError,clippedHighlights,exposures,maskError,calibration,
         midtoneGain:linear(half[128*4])/linear(128),negativeGain:linear(negative[128*4])/linear(128)};
     }finally{p.dispose();}
   })()`);
@@ -48,6 +65,7 @@ export async function colorRegressionChecks(evaluate){
   assert.ok(result.maxLuminanceError<.008,'Colour grading preserves luminance within 8-bit rounding');
   assert.equal(result.clippedHighlights,0,'Moderate highlight tint must not clip a channel');
   assert.equal(result.maskError,0,'An empty mask must leave the photo untouched');
+  assert.deepEqual(result.calibration,{identical:true,grey:true,shadowTint:true,responsive:true});
   assert.ok(result.exposures.every(e=>!e.reversed&&!e.darkened&&e.white===255),'Positive exposure stays monotone, brightens, and preserves white');
   assert.ok(Math.abs(result.midtoneGain-Math.SQRT2)<.02,'+0.5 EV retains its intended midtone gain');
   assert.ok(Math.abs(result.negativeGain-.5)<.01,'−1 EV retains its intended gain');

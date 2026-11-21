@@ -18,13 +18,28 @@ uniform vec4 detail; // blacks, clarity, texture, dehaze
 uniform vec4 color; // exposure, temperature, tint, saturation
 uniform vec3 whiteBalance;
 uniform bool displayReferred;
-uniform vec2 texel;
+uniform sampler2D fineBlur;
+uniform sampler2D broadBlur;
+uniform vec2 glowStep;
 uniform sampler2D curve;
 uniform int curveMode; // 0 identity, 1 master only, 2 master and RGB channels
 uniform float glow;
 vec3 curveRGB(vec3 c){return vec3(texture(curve,vec2(clamp(c.r,0.,1.),.5)).r,texture(curve,vec2(clamp(c.g,0.,1.),.5)).g,texture(curve,vec2(clamp(c.b,0.,1.),.5)).b);}
+float detailSignal(float value,float blurred){
+  float d=value-blurred;
+  // Bound the gain across hard edges while retaining fine, low-contrast detail.
+  return d/(1.+abs(d)/.08);
+}
 vec3 adjust(vec3 src){
   vec3 c=linearize(src)*whiteBalance*vec3(exp(color.y*.16+color.z*.04),exp(-color.z*.06),exp(-color.y*.16+color.z*.04));
+#ifdef GLOBAL_ADJUST
+  if(calibrated)c=max(vec3(0),mat3(primaries[0],primaries[1],primaries[2])*c);
+  if(shadowTint!=0.){
+    float y=lum(c);
+    c.g*=exp2(-shadowTint*(1.-smoothstep(.02,.35,y)));
+    c*=y/max(lum(c),1e-8);
+  }
+#endif
   float exposure=exp2(color.x);
   // A camera JPEG has already lost clipped highlights: anchor display white.
   c*=displayReferred?exposure/(1.+(exposure-1.)*pow(clamp(lum(c),0.,1.),4.)):exposure;
@@ -32,11 +47,29 @@ vec3 adjust(vec3 src){
   c*=exp2(tone.z*lo*.65+tone.y*hi*.65+tone.w*pow(hi,3.)*.45+detail.x*pow(lo,3.)*.45);
   c=pow(max(c,vec3(0))/.18,vec3(max(.2,1.+tone.x*.25)))*.18;
   c=(c-vec3(.025*detail.w))*(1.+detail.w*.35);
-  vec3 blur=vec3(0);vec3 broad=vec3(0);
-  for(int i=0;i<8;i++){float a=float(i)*.785398;vec2 d=vec2(cos(a),sin(a));blur+=texture(image,uv+d*texel*2.).rgb/8.;broad+=texture(image,uv+d*texel*14.).rgb/8.;}
-  c+=(linearize(src)-linearize(blur))*detail.z*.4+(linearize(src)-linearize(broad))*detail.y*.65;
-  c+=linearize(broad)*glow*.12*smoothstep(.15,.9,lum(broad));
+  float value=lum(src),stops=0.;
+  if(detail.z!=0.)stops+=detail.z*2.*detailSignal(value,lum(texture(fineBlur,uv).rgb));
+  if(detail.y!=0.){
+    float midtones=smoothstep(.05,.35,value)*(1.-smoothstep(.65,.95,value));
+    stops+=detail.y*3.*midtones*detailSignal(value,lum(texture(broadBlur,uv).rgb));
+  }
+  c*=exp2(stops);
+  if(glow!=0.){
+    vec3 bloom=vec3(0);
+    for(int i=0;i<8;i++){
+      float a=float(i)*.785398;
+      bloom+=texture(image,uv+vec2(cos(a),sin(a))*glowStep*14.).rgb/8.;
+    }
+    c+=linearize(bloom)*glow*.12*smoothstep(.15,.9,lum(bloom));
+  }
   c=encode(max(c,vec3(0)));c=mix(vec3(lum(c)),c,1.+color.w);
+#ifdef GLOBAL_ADJUST
+  if(parametricHighlights.x!=0.){
+    float weight=smoothstep(parametricHighlights.y,1.,lum(c));
+    float headroom=max(0.,1.-max(c.r,max(c.g,c.b)));
+    c*=1.+parametricHighlights.x*weight*headroom;
+  }
+#endif
   if(curveMode==0)return c;
   // Map the extrema through the master curve and interpolate the middle
   // channel at its original position. This preserves hue through the bend.
@@ -51,7 +84,13 @@ vec3 adjust(vec3 src){
   return encode(inverse(toWide)*linearize(curveRGB(wide)));
 }
 `;
-export const globalShader = header + adjustments + `
+export const globalShader = header + `
+#define GLOBAL_ADJUST
+uniform vec3 primaries[3];
+uniform bool calibrated;
+uniform float shadowTint;
+uniform vec2 parametricHighlights; // amount and start of the highlight zone
+` + adjustments + `
 uniform vec3 hsl[8];uniform float vibrance;
 uniform vec4 gradeShadow;uniform vec4 gradeMid;uniform vec4 gradeHigh;uniform vec4 gradeGlobal;
 uniform vec2 gradeMix;
@@ -143,7 +182,43 @@ if(kind==4){vec3 c=lab(texture(image,uv).rgb);float d=10.;for(int i=0;i<16;i++){
 if(inverted)m=1.-m;m*=strength;float p=texture(previous,uv).r;
 if(first)p=blendMode==0?0.:1.;float result=blendMode==1?max(0.,p-m):blendMode==2?p*m:max(p,m);frag=vec4(vec3(clamp(result,0.,1.)),1.);}`;
 export const copyShader = header + `void main(){frag=texture(image,uv);}`;
+// Separable binomial low-pass. The intermediate pyramid keeps the tap spacing
+// near a texel even for a large physical radius on a full-resolution frame.
+export const blurShader = header + `
+uniform vec2 direction;
+void main(){
+  vec3 color=texture(image,uv).rgb*6.;
+  color+=4.*(texture(image,uv-direction).rgb+texture(image,uv+direction).rgb);
+  color+=texture(image,uv-2.*direction).rgb+texture(image,uv+2.*direction).rgb;
+  frag=vec4(color/16.,1.);
+}`;
 export const bands=['Red','Orange','Yellow','Green','Aqua','Blue','Purple','Magenta'];
+// Columns are the rotated linear RGB primaries. Rotate about the neutral axis
+// and scale each primary's distance from it, then anchor the white point.
+export function calibrationUniforms(g){
+  const primaries=[];
+  let calibrated=false;
+  for(const [i,name] of ['Red','Green','Blue'].entries()){
+    const hue=Number(g[name+'Hue']||0), sat=Number(g[name+'Saturation']||0);
+    if(hue||sat)calibrated=true;
+    const angle=hue*Math.PI/180, radius=1+sat*.0025;
+    for(let j=0;j<3;j++){
+      const axis=(j-i+3)%3;
+      const tangent=[0,1,-1][axis]/Math.sqrt(3);
+      primaries.push(1/3+radius*((Number(i===j)-1/3)*Math.cos(angle)+tangent*Math.sin(angle)));
+    }
+  }
+  const white=[0,1,2].map(i=>primaries[i]+primaries[i+3]+primaries[i+6]);
+  // Opposing extreme slider settings can bring one white response close to
+  // zero. Shorten the displacement before normalization to keep white neutral.
+  const strength=Math.min(1,.75/Math.max(.75,1-Math.min(...white)));
+  const matrix=primaries.map((v,i)=>{
+    const identity=Number(i%4===0);
+    return (identity+strength*(v-identity))/(1+strength*(white[i%3]-1));
+  });
+  return {calibrated,primaries:matrix,
+    shadowTint:Number(g.ShadowTint||0)/100};
+}
 export function adjustmentUniforms(g,local=false){
   const n=(k,d=0)=>Number(g[(local?'Local':'')+k]??d),
   scale=local?1:.01;

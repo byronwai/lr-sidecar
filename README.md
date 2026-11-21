@@ -20,6 +20,7 @@ Drop a Sony ARW or Canon CR3 and its Camera Raw XMP. Include the ACR sidecar whe
   - Camera Raw XMP settings and the `MaskGroupBasedCorrections` stack
   - the ACR companion file, whose JPEG XL tiles hold the AI mask rasters and Generative Remove patches
 - **Replays the edit on WebGL2.** Global tone, colour, HSL, curves and colour grading, then each local correction through its mask: AI subject/background/sky masks, linear and radial gradients, luminance and colour ranges, brush strokes and Generative Remove. Masks are combined with add, subtract and intersect.
+- **Camera Calibration.** Primary Hue and Saturation adjust a linear RGB matrix before tone, HSL and grading. Shadows Tint adjusts the dark tones. At 1024 px, enabling calibration reduced mean ΔE2000 against Lightroom exports from 8.77 to 6.46 on a Canon R50 sample and from 4.98 to 4.80 on a Sony sample.
 - **Aligns AI masks with the lens.** Sony's camera JPEG has in-camera distortion correction baked in, but Lightroom stores AI masks in the uncorrected sensor frame. The compiler reads `aux:LensDistortInfo` and checks which hypothesis matches the image edges (Auto / Warp / Off). It then remaps the masks, so subject edges don't get halos.
 - **Shows its work.**
   - An interactive isometric slice stack shows one slice per pass, with its mask, parameters and timing. You can inspect any pass.

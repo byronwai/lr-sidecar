@@ -1,5 +1,10 @@
 const bandNames = ['Red', 'Orange', 'Yellow', 'Green', 'Aqua', 'Blue', 'Purple', 'Magenta'];
 const initials = ['R', 'O', 'Y', 'G', 'A', 'B', 'P', 'M'];
+export const calibrationLabels = {
+  ShadowTint: 'Shadows Tint', RedHue: 'Red Primary Hue', RedSaturation: 'Red Primary Saturation',
+  GreenHue: 'Green Primary Hue', GreenSaturation: 'Green Primary Saturation',
+  BlueHue: 'Blue Primary Hue', BlueSaturation: 'Blue Primary Saturation'
+};
 const number = (value, digits = 2) => Number(value).toLocaleString('en-US', {
   useGrouping: false, maximumFractionDigits: digits
 }).replace(/^-/, '−');
@@ -19,6 +24,9 @@ export function globalSummary(g) {
   if (identity.length) lines.push(identity.join(' · '));
   const basic = amounts(g, ['Exposure2012', 'Contrast2012', 'Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012']);
   if (basic.length) lines.push(basic.join(' · '));
+  const calibration = Object.entries(calibrationLabels).filter(([key]) => Number(g[key]))
+    .map(([key,label]) => `${label} ${signed(g[key])}`);
+  if (calibration.length) lines.push(calibration.join(' · '));
   const presence = amounts(g, ['Texture', 'Clarity2012', 'Dehaze', 'Vibrance', 'Saturation']);
   if (g.HasCrop) {
     presence.push(`crop ${number(100 * ((g.CropRight ?? 1) - (g.CropLeft ?? 0)), 1)}%`);

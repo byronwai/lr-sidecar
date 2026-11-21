@@ -6,7 +6,15 @@ The lens measurements use two sample edits: a night portrait on a Sony FE 20-70 
 
 With a Canon R50 sample, track 1 held a 6000 × 4000 JPEG of 3,613,893 bytes at offset 500,224. The other previews measured 1620 × 1080 and 160 × 120. The browser input matched an independent decode of track 1 at orientation 1. CTMD ColorData v48 gave 5200 K and RGGB levels of 1777/1024/1024/1736. Peripheral lighting, chromatic aberration correction and digital lens optimization were on. Distortion correction was off.
 
-An in-memory XMP applied exposure +0.3, contrast +10, a red curve and one linear gradient. The slice stack rendered both passes. The Teaser and Tutorial exported at 1080 × 1920 with 255 and 360 frames respectively. The Tutorial source card showed “50mm · f/5 · 1/250s · ISO 100” and “RF50mm F1.8 STM”. The sample had no matching Lightroom sidecars, so the Canon AI mask coordinate frame and the ACR source tag remain unverified.
+An in-memory XMP applied exposure +0.3, contrast +10, a red curve and one linear gradient. The slice stack rendered both passes. The Teaser and Tutorial exported at 1080 × 1920 with 255 and 360 frames respectively. The Tutorial source card showed “50mm · f/5 · 1/250s · ISO 100” and “RF50mm F1.8 STM”. This test used a synthetic sidecar. The Canon AI mask coordinate frame and the ACR source tag remain unverified.
+
+## Calibration and local detail
+
+Four Lightroom exports were compared at a 1024 px long edge in D65 Lab using the finished crop. Mean ΔE2000 fell from 12.52 to 6.46 on a Canon R50 sample and from 4.98 to 4.80 on a Sony sample. With the final renderer and calibration disabled, the Canon measured 8.77. Both zero-calibration Sony samples had byte-identical 3072 × 2048 global framebuffers and identical final comparison frames.
+
+The primary matrix uses 1° of hue rotation and 0.25% of chroma-radius change per slider unit. Both values were endpoints of the tested grid. Only one sample exercised primary saturation and all four used zero Shadows Tint. The Canon exterior radial and stronger shadow grading reduced its lightness error. Alternate colour-range radii and an L* luminance lookup gave mixed results across exports.
+
+At 1024 and 2048 px, synthetic Clarity and Texture settings of ±50 produced no secondary extrema on a step edge. The largest edge excursion was 4 levels out of 255. After resampling, the two edge profiles differed by at most one level.
 
 ## Lens alignment of AI masks
 
