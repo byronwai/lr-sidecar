@@ -119,7 +119,7 @@ The browser test drives Chrome through the DevTools protocol. Start Chrome with 
 The site is served as static assets by Cloudflare Workers ([`wrangler.jsonc`](wrangler.jsonc)). Deploys are automatic through [GitHub Actions](.github/workflows/deploy.yml):
 
 - **Push to `main`:** deploys to production.
-- **Push to any other branch:** uploads a preview version with its own URL, and production is untouched.
+- **Push to any other branch:** uploads a new version without deploying it, and production is untouched. Preview (Version) URLs are turned off (`"preview_urls": false` in `wrangler.jsonc`); set it to `true` to get a URL per branch again.
 
 The workflow needs two repository secrets: `CLOUDFLARE_API_TOKEN`, a token from the *Edit Cloudflare Workers* template, and `CLOUDFLARE_ACCOUNT_ID`.
 
