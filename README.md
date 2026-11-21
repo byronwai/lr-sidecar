@@ -10,7 +10,7 @@ Drop a Sony ARW or Canon CR3 and its Camera Raw XMP. Include the ACR sidecar whe
 [![Runs in the browser](https://img.shields.io/badge/runs-in%20your%20browser-4d6bfe)](https://lr-sidecar.byronwai.workers.dev/)
 [![No uploads](https://img.shields.io/badge/uploads-none-4d6bfe)](#privacy)
 
-**[Open the compiler →](https://lr-sidecar.byronwai.workers.dev/)** · [Read the format notes](https://byronwai.github.io/2026/11/16/Lightroom-RAW-Sidecars/)
+**[Open the compiler →](https://lr-sidecar.byronwai.workers.dev/)** · **[Beginner's guide](docs/GUIDE.md)** · [Read the format notes](https://byronwai.github.io/2026/11/16/Lightroom-RAW-Sidecars/)
 
 ---
 
@@ -89,6 +89,10 @@ This is an **approximation** of Lightroom, not a raw developer.
 
 ## Getting started
 
+New to the tool? The **[beginner's guide](docs/GUIDE.md)** walks through exporting the files from Lightroom, compiling, exploring the slice stack and making a Reel.
+
+### Run it locally
+
 The app is a static site, so any static file server works:
 
 ```sh
@@ -137,7 +141,7 @@ public/
   reel.js, reel/                   Reel timeline, scenes, encoder, fonts
   vendor/                          JPEG XL decoder, MP4 muxer (third-party)
 test/                              Node self-test and browser tests
-docs/                              verification notes for the Reel and UI
+docs/                              beginner's guide, verification notes for the Reel and UI
 ```
 
 ## Credits
@@ -150,4 +154,4 @@ docs/                              verification notes for the Reel and UI
 
 [Apache License 2.0](LICENSE). Third-party components keep their own licences; see [NOTICE](NOTICE).
 
-Not affiliated with or endorsed by Adobe or Sony.
+Not affiliated with or endorsed by Adobe, Sony or Canon.
